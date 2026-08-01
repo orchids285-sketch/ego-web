@@ -116,6 +116,30 @@ agent are always looking at the same thing.
 Model: any OpenAI-compatible endpoint (`EGO_LLM_KEY`, `EGO_LLM_MODEL`) — defaults to a free
 OpenRouter model, so this adds no new paid dependency.
 
+
+## Plugged into the rest of the platform (`bridge.mjs`)
+
+The hands are useless without the body. Nothing below is reimplemented here — it is *called*,
+and every call degrades to a no-op if the backend is unset or down, so ego-web still works alone.
+
+| what | existing endpoint it uses | why it matters |
+|---|---|---|
+| **API-first** | `/api/actions/nl`, `/api/actions/catalog` | before touching a UI, ask whether a real integration can already do it. Clicking is the fallback, not the ambition |
+| **Company knowledge** | `/api/kb/articles` | the agent follows *your* procedures instead of improvising like a stranger |
+| **Audit** | `/api/audit/log` | every step logged: action, reason, source, result |
+| **Data spine** | `/api/spine/emit` | a browser run is visible to the rest of the platform |
+| **Human in the loop** | returns `needs_confirmation` | irreversible steps stop and go to your approval queue instead of being performed |
+
+```bash
+FR_API_URL=https://<your-backend>   FR_USER_ID=<clerk user>   # enables the bridge
+EGO_LLM_KEY=<openrouter key>                                   # free model by default
+```
+
+And the reverse direction — the platform's own agent gets these hands via `lib/ego_web.py`,
+exposed to the autopilot as two tools: `use_software("add Jane Doe as a contact")` and
+`whats_on_screen()`. Each SaaS user gets an isolated browser profile (`space=u_<user_id>`), so
+logged-in sessions are never shared between accounts.
+
 ## Embedded-tool mode (no branding, no auth screen)
 
 Same contract as the other embedded tools in the suite — drop it in an iframe and it renders

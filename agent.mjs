@@ -14,6 +14,7 @@
  * irreversible, and the loop stops and asks instead of sending, paying or deleting.
  */
 import { detect, brief, findTask } from './playbooks.mjs';
+import * as bridge from './bridge.mjs';
 
 const LLM_URL = process.env.EGO_LLM_URL || 'https://openrouter.ai/api/v1/chat/completions';
 const LLM_KEY = process.env.EGO_LLM_KEY || process.env.OPENROUTER_API_KEY || '';
@@ -86,8 +87,24 @@ RULES
  * @param {boolean} [o.allowIrreversible]
  * @param {(s:object)=>void} [o.onStep]
  */
-export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversible = false, onStep }) {
+export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversible = false, noApi = false, onStep }) {
   if (!llmReady()) return { ok: false, error: 'no LLM key configured (EGO_LLM_KEY / OPENROUTER_API_KEY)' };
+
+  /* API-first. Clicking is the fallback, never the ambition: if the platform can already
+   * do this through a real integration, that path is faster and far more reliable than
+   * driving someone else's UI. Only when no API covers it do we use the hands. */
+  if (bridge.bridged() && !noApi) {
+    const viaApi = await bridge.apiRoute(goal, { execute: true });
+    if (viaApi?.executed) {
+      await bridge.audit('goal.via_api', { goal, steps: viaApi.steps?.length || 0 });
+      return { ok: true, status: 'done', via: 'api', steps: viaApi.steps,
+               result: 'Done through a real integration — no UI automation needed.' };
+    }
+  }
+
+  /* What does this company already know that bears on the goal? The agent should behave
+   * like someone who works here, not a stranger clicking around. */
+  const companyContext = await bridge.context(goal).catch(() => '');
 
   const trail = [];
   let last = '';
@@ -100,6 +117,8 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       `GOAL: ${goal}`,
       allowIrreversible ? 'The user HAS authorised irreversible actions for this goal.' : '',
       '',
+      companyContext,          // company procedures + which real APIs exist (from the platform)
+      companyContext ? '' : null,
       brief(pb),
       '',
       `CURRENT PAGE: ${snap.title} — ${snap.url}`,
@@ -119,6 +138,9 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
     const { action, ref, text, url, result, thought } = decision;
     const line = `${action}${ref ? ' ' + ref : ''}${text ? ' "' + String(text).slice(0, 40) + '"' : ''}${url ? ' ' + url : ''}`;
     onStep?.({ step, thought, action, ref, text, url, page: snap.url });
+    // Trust layer: action, reason, source, result — every step traceable.
+    bridge.audit('agent.step', { step, goal, action, ref, reason: thought, url: snap.url, app: pb.name })
+      .catch(() => {});
 
     // Safety gate — the model can propose it, the loop still refuses it.
     if (!allowIrreversible && (IRREVERSIBLE.test(goal) === false) && ref) {
