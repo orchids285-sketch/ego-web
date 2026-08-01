@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ego-web — browser for AI agents</title>
+<style>
+  :root { --bg:#0a0a0a; --panel:#121212; --line:#262626; --fg:#e6e6e6; --dim:#8a8a8a; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display:flex; flex-direction:column; }
+  header { display:flex; gap:8px; align-items:center; padding:8px 10px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .brand { font-weight:600; letter-spacing:.02em; margin-right:4px; white-space:nowrap; }
+  .brand small { color:var(--dim); font-weight:400; margin-left:6px; }
+  input, select, button { background:#0f0f0f; color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:6px 9px; font:inherit; outline:none; }
+  input:focus, select:focus { border-color:#3d3d3d; }
+  #url { flex:1 1 340px; min-width:200px; }
+  button { cursor:pointer; }
+  button:hover { border-color:#3d3d3d; }
+  .stat { color:var(--dim); font-size:12px; white-space:nowrap; }
+  main { flex:1; display:flex; align-items:flex-start; justify-content:center;
+    overflow:auto; padding:12px; }
+  #screen { max-width:100%; border:1px solid var(--line); border-radius:8px;
+    background:#000; cursor:crosshair; display:block; }
+  footer { padding:6px 10px; border-top:1px solid var(--line); background:var(--panel);
+    color:var(--dim); font-size:12px; display:flex; gap:14px; flex-wrap:wrap; }
+  kbd { border:1px solid var(--line); border-radius:4px; padding:0 4px; background:#0f0f0f; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">ego-web<small>browser for AI agents</small></span>
+  <button id="back" title="Back">←</button>
+  <input id="url" placeholder="https://example.com — log in here once; your agent reuses the session" />
+  <button id="go">Go</button>
+  <label class="stat">space
+    <input id="space" value="default" size="9" style="margin-left:6px" />
+  </label>
+  <span class="stat" id="stat">connecting…</span>
+</header>
+
+<main><canvas id="screen" width="1280" height="800"></canvas></main>
+
+<footer>
+  <span>Click and type directly on the page — you are driving the real browser.</span>
+  <span><kbd>Enter</kbd> in the URL bar navigates</span>
+  <span id="title"></span>
+</footer>
+
+<script>
+const qs   = new URLSearchParams(location.search);
+const key  = qs.get('key') || '';
+const cv   = document.getElementById('screen');
+const ctx  = cv.getContext('2d');
+const stat = document.getElementById('stat');
+const ttl  = document.getElementById('title');
+const urlIn= document.getElementById('url');
+const spaceIn = document.getElementById('space');
+let ws, lastUrl = '', imgW = 1280, imgH = 800;
+
+function connect() {
+  const space = spaceIn.value || 'default';
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?space=${encodeURIComponent(space)}${key ? '&key=' + encodeURIComponent(key) : ''}`);
+  ws.onopen  = () => (stat.textContent = 'live');
+  ws.onclose = () => { stat.textContent = 'disconnected — retrying'; setTimeout(connect, 1500); };
+  ws.onerror = () => (stat.textContent = 'error');
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.t !== 'frame') return;
+    const img = new Image();
+    img.onload = () => {
+      if (img.width !== imgW || img.height !== imgH) { imgW = img.width; imgH = img.height; cv.width = imgW; cv.height = imgH; }
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = 'data:image/jpeg;base64,' + m.b64;
+    if (m.url && m.url !== lastUrl) { lastUrl = m.url; if (document.activeElement !== urlIn) urlIn.value = m.url; }
+    ttl.textContent = m.title || '';
+  };
+}
+const send = (o) => ws?.readyState === 1 && ws.send(JSON.stringify(o));
+
+// map canvas coords -> real page coords (canvas is CSS-scaled)
+function pt(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: Math.round((e.clientX - r.left) * (cv.width / r.width)),
+           y: Math.round((e.clientY - r.top) * (cv.height / r.height)) };
+}
+cv.addEventListener('click', (e) => { const p = pt(e); send({ t: 'click', ...p }); cv.focus(); });
+cv.addEventListener('wheel', (e) => { e.preventDefault(); send({ t: 'wheel', dy: e.deltaY }); }, { passive: false });
+document.addEventListener('keydown', (e) => {
+  if (e.target === urlIn || e.target === spaceIn) return;
+  const special = ['Enter','Tab','Backspace','Delete','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape','Home','End','PageUp','PageDown'];
+  if (special.includes(e.key)) { e.preventDefault(); send({ t: 'key', key: e.key }); }
+  else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); send({ t: 'text', text: e.key }); }
+});
+document.getElementById('go').onclick = () => send({ t: 'goto', url: urlIn.value });
+document.getElementById('back').onclick = () => send({ t: 'back' });
+urlIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') send({ t: 'goto', url: urlIn.value }); });
+spaceIn.addEventListener('change', () => { try { ws.close(); } catch {} });
+connect();
+</script>
+</body>
+</html>

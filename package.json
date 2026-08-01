@@ -1,0 +1,16 @@
+{
+  "name": "ego-web",
+  "version": "1.0.0",
+  "description": "Web version of ego-lite — a deployable headless browser for AI agents, with @eN snapshots, persistent task spaces (logged-in sessions) and a live web viewer.",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.49.0",
+    "ws": "^8.18.0"
+  }
+}
