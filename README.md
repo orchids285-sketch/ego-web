@@ -94,8 +94,9 @@ curl -X POST $HOST/v1/task -H "Authorization: Bearer $KEY"      -d '{"space":"cr
 **Playbooks, not selectors.** `playbooks.mjs` holds procedural knowledge per app — how HubSpot is
 laid out, that creating a record happens in a right-hand drawer, that LinkedIn punishes fast
 loops. The agent grounds each step on a fresh `@eN` snapshot, so a vendor redesign doesn't break
-it the way hard-coded selectors always do. Shipping with: **HubSpot, Salesforce, Notion, Gmail,
-LinkedIn, Google Sheets, Stripe**, plus a generic fallback so it is never useless on an unknown app.
+it the way hard-coded selectors always do. Shipping with **13 apps / 34 tasks**: HubSpot, Salesforce, Attio, Pipedrive, Notion, Gmail,
+Intercom, Slack, Airtable, Linear, Google Sheets, Stripe, LinkedIn — plus a generic fallback so it
+is never useless on an unknown one.
 
 **The loop** (`agent.mjs`): observe → decide → act → verify, max-steps bounded, with a trace of
 every step returned to the caller. It refuses irreversible actions (send / pay / refund / delete /
