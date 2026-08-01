@@ -26,6 +26,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { chromium } from 'playwright';
+import { runGoal, runTask, assist, llmReady } from './agent.mjs';
+import { detect } from './playbooks.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -170,7 +172,23 @@ function makeFacades(space, logs) {
       await np.goto(url, { waitUntil: opts.wait === false ? 'commit' : 'domcontentloaded', timeout: 45000 });
       s.page = np; return { reused: false, url: np.url() };
     },
-    async tabs() { const s = await getSpace(space); return s.ctx.pages().filter((p) => !p.isClosed()).map((p) => p.url()); },
+    async tabs() {
+      const s = await getSpace(space);
+      const open = s.ctx.pages().filter((p) => !p.isClosed());
+      return Promise.all(open.map(async (p, i) => ({
+        index: i, url: p.url(), title: await p.title().catch(() => ''),
+        app: detect(p.url()).name, active: p === s.page,
+      })));
+    },
+    /** Work on an already-open tab instead of a fresh one — the user's real workspace. */
+    async useTab(index) {
+      const s = await getSpace(space);
+      const open = s.ctx.pages().filter((p) => !p.isClosed());
+      const p = open[Number(index)];
+      if (!p) throw new Error(`no tab at index ${index}`);
+      s.page = p; await p.bringToFront();
+      return { index: Number(index), url: p.url(), app: detect(p.url()).name };
+    },
     async cookies() { const s = await getSpace(space); return s.ctx.cookies(); },
   };
   const taskSpaces = {
@@ -258,6 +276,34 @@ const server = http.createServer(async (req, res) => {
       if (p === '/v1/fill') { const f = makeFacades(space, []); await f.page.fill(b.ref, b.text); return json(res, 200, { ok: true }); }
       if (p === '/v1/screenshot') { const f = makeFacades(space, []); return json(res, 200, { ok: true, png_base64: await f.page.screenshot({ fullPage: !!b.fullPage }) }); }
       if (p === '/v1/spaces') return json(res, 200, { ok: true, spaces: fs.existsSync(path.join(DATA_DIR, 'spaces')) ? fs.readdirSync(path.join(DATA_DIR, 'spaces')) : [] });
+
+      /* ── the worker layer: it doesn't just read your tabs, it works in them ────────
+       * /v1/tabs   what is open right now (with the app recognised per tab)
+       * /v1/tab    switch the agent onto one of those already-open tabs
+       * /v1/assist what can be done on the page in front of you, in THIS app's terms
+       * /v1/agent  a plain-language goal, executed step by step on the live page
+       * /v1/task   one named task from the app's playbook (create_contact, log_call, …)
+       */
+      if (p === '/v1/tabs') { const f = makeFacades(space, []); return json(res, 200, { ok: true, tabs: await f.browser.tabs() }); }
+      if (p === '/v1/tab') { const f = makeFacades(space, []); return json(res, 200, { ok: true, ...(await f.browser.useTab(b.index ?? 0)) }); }
+      if (p === '/v1/assist') { const f = makeFacades(space, []); return json(res, 200, { ok: true, llm: llmReady(), ...(await assist(f.page)) }); }
+      if (p === '/v1/agent') {
+        const f = makeFacades(space, []);
+        const steps = [];
+        const out = await runGoal({ page: f.page, goal: String(b.goal || ''),
+                                    maxSteps: Number(b.max_steps) || undefined,
+                                    allowIrreversible: !!b.allow_irreversible,
+                                    onStep: (s) => steps.push(s) });
+        return json(res, 200, { ...out, trace: steps });
+      }
+      if (p === '/v1/task') {
+        const f = makeFacades(space, []);
+        const steps = [];
+        const out = await runTask({ page: f.page, taskId: String(b.task || ''), inputs: b.inputs || {},
+                                    allowIrreversible: !!b.allow_irreversible,
+                                    onStep: (s) => steps.push(s) });
+        return json(res, 200, { ...out, trace: steps });
+      }
       return json(res, 404, { ok: false, error: 'unknown endpoint' });
     }
     res.writeHead(404); res.end('not found');

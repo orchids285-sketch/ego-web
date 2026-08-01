@@ -69,6 +69,53 @@ log in **as a human**, and the cookies land in that space's profile on the volum
 agent run in that space is already authenticated — ego-lite's core idea, server-side.
 
 
+
+## It works *inside* the software you already pay for
+
+This is the part that matters. ego-web does not "read your tabs" — it recognises the app on
+screen and does the work in it. Your other SaaS stops being a place you have to go and operate
+by hand; it becomes a surface an agent operates for you.
+
+```bash
+# What can it do on the page I'm looking at?
+curl -X POST $HOST/v1/assist -H "Authorization: Bearer $KEY" -d '{"space":"crm"}'
+# -> {"app":"HubSpot","knows_app":true,
+#     "tasks":[{"id":"create_contact"},{"id":"bulk_import"},{"id":"log_activity"},
+#              {"id":"find_duplicates"},{"id":"update_deal_stage"},{"id":"export_view"}],
+#     "notes":["Left rail is the object switcher (Contacts, Companies, Deals, Tickets).", ...]}
+
+# Give it a goal, in plain language, on the live page
+curl -X POST $HOST/v1/agent -H "Authorization: Bearer $KEY"      -d '{"space":"crm","goal":"Add Jane Doe (jane@acme.com, Acme) as a contact"}'
+
+# Or run a known task from that app's playbook
+curl -X POST $HOST/v1/task -H "Authorization: Bearer $KEY"      -d '{"space":"crm","task":"find_duplicates"}'
+```
+
+**Playbooks, not selectors.** `playbooks.mjs` holds procedural knowledge per app — how HubSpot is
+laid out, that creating a record happens in a right-hand drawer, that LinkedIn punishes fast
+loops. The agent grounds each step on a fresh `@eN` snapshot, so a vendor redesign doesn't break
+it the way hard-coded selectors always do. Shipping with: **HubSpot, Salesforce, Notion, Gmail,
+LinkedIn, Google Sheets, Stripe**, plus a generic fallback so it is never useless on an unknown app.
+
+**The loop** (`agent.mjs`): observe → decide → act → verify, max-steps bounded, with a trace of
+every step returned to the caller. It refuses irreversible actions (send / pay / refund / delete /
+merge / publish / invite) unless the goal explicitly authorises them, and it stops and *asks* at a
+login wall instead of guessing credentials — verified live against HubSpot's real login page.
+
+**Your open tabs are the workspace.** `/v1/tabs` lists what is open (with the app recognised per
+tab), `/v1/tab` puts the agent on one of them. The viewer shows the same strip, so a human and the
+agent are always looking at the same thing.
+
+| endpoint | does |
+|---|---|
+| `/v1/assist` | which app is on screen + what it can take off your hands |
+| `/v1/agent` | plain-language goal, executed step by step on the live page |
+| `/v1/task` | one named task from that app's playbook |
+| `/v1/tabs` · `/v1/tab` | list the open tabs / put the agent on one |
+
+Model: any OpenAI-compatible endpoint (`EGO_LLM_KEY`, `EGO_LLM_MODEL`) — defaults to a free
+OpenRouter model, so this adds no new paid dependency.
+
 ## Embedded-tool mode (no branding, no auth screen)
 
 Same contract as the other embedded tools in the suite — drop it in an iframe and it renders

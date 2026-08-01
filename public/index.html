@@ -28,6 +28,27 @@
   footer { padding:6px 10px; border-top:1px solid var(--line); background:var(--panel);
     color:var(--dim); font-size:12px; display:flex; gap:14px; flex-wrap:wrap; }
   kbd { border:1px solid var(--line); border-radius:4px; padding:0 4px; background:#0f0f0f; }
+  /* open tabs — the user's real workspace, not a passive reader */
+  #tabs { display:flex; gap:6px; padding:6px 10px; background:var(--panel);
+    border-bottom:1px solid var(--line); overflow-x:auto; }
+  #tabs:empty { display:none; }
+  .tab { border:1px solid var(--line); background:#0f0f0f; color:var(--dim); border-radius:6px;
+    padding:4px 9px; font-size:12px; cursor:pointer; white-space:nowrap; max-width:230px;
+    overflow:hidden; text-overflow:ellipsis; }
+  .tab:hover { border-color:#3d3d3d; }
+  .tab.on { color:var(--fg); border-color:#4a4a4a; background:#161616; }
+  .tab .app { color:#6f6f6f; }
+  /* the agent strip */
+  #assist { display:flex; gap:8px; align-items:center; padding:7px 10px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  #goal { flex:1 1 380px; min-width:200px; }
+  .pill { border:1px solid var(--line); border-radius:999px; padding:3px 10px;
+    font-size:12px; color:var(--dim); white-space:nowrap; }
+  .pill.known { color:var(--fg); border-color:#4a4a4a; }
+  #trace { max-height:150px; overflow:auto; padding:0 10px; background:var(--bg);
+    color:var(--dim); font-size:12px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #trace:empty { display:none; }
+  #trace div { padding:3px 0; border-bottom:1px solid #161616; }
 </style>
 </head>
 <body>
@@ -40,6 +61,16 @@
   </label>
   <span class="stat" id="stat">connecting…</span>
 </header>
+
+<div id="tabs"></div>
+
+<div id="assist">
+  <span id="app" class="pill">reading page…</span>
+  <input id="goal" placeholder="Tell the agent what to do here — e.g. add these 5 contacts, find duplicates, log this call" />
+  <button id="run">Run</button>
+  <span class="stat" id="agentStat"></span>
+</div>
+<div id="trace"></div>
 
 <main><canvas id="screen" width="1280" height="800"></canvas></main>
 
@@ -109,6 +140,77 @@ document.addEventListener('keydown', (e) => {
   if (special.includes(e.key)) { e.preventDefault(); send({ t: 'key', key: e.key }); }
   else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); send({ t: 'text', text: e.key }); }
 });
+/* ── the agent layer ─────────────────────────────────────────────────────────────
+ * The browser is not here to be watched. It recognises the app you are in
+ * (HubSpot, Salesforce, Notion…), tells you what it can take off your hands, and
+ * does it on the live page. Your other SaaS becomes something it operates for you.
+ */
+const api = (path, body) => fetch(path + (key ? '?key=' + encodeURIComponent(key) : ''), {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ space: spaceIn.value || 'default', ...body }),
+}).then((r) => r.json());
+
+const appPill = document.getElementById('app');
+const traceEl = document.getElementById('trace');
+const tabsEl  = document.getElementById('tabs');
+const agentStat = document.getElementById('agentStat');
+let lastAssistUrl = '';
+
+async function refreshTabs() {
+  try {
+    const { tabs = [] } = await api('/v1/tabs', {});
+    tabsEl.innerHTML = '';
+    tabs.forEach((t) => {
+      const b = document.createElement('button');
+      b.className = 'tab' + (t.active ? ' on' : '');
+      b.innerHTML = `${(t.title || t.url).slice(0, 34)} <span class="app">${t.app}</span>`;
+      b.title = t.url;
+      b.onclick = async () => { await api('/v1/tab', { index: t.index }); refreshTabs(); refreshAssist(true); };
+      tabsEl.appendChild(b);
+    });
+  } catch {}
+}
+
+async function refreshAssist(force) {
+  if (!force && lastUrl === lastAssistUrl) return;
+  lastAssistUrl = lastUrl;
+  try {
+    const a = await api('/v1/assist', {});
+    appPill.textContent = a.knows_app
+      ? `${a.app} — ${a.tasks.length} tasks it can do for you`
+      : `${a.app || 'page'} — general assistance`;
+    appPill.className = 'pill' + (a.knows_app ? ' known' : '');
+    appPill.title = (a.tasks || []).map((t) => '• ' + t.label).join('\n');
+    if (!a.llm) agentStat.textContent = 'agent offline (no model key)';
+  } catch {}
+}
+
+const goalIn = document.getElementById('goal');
+async function runAgent() {
+  const goal = goalIn.value.trim();
+  if (!goal) return;
+  agentStat.textContent = 'working…';
+  traceEl.innerHTML = '';
+  try {
+    const r = await api('/v1/agent', { goal });
+    (r.trace || []).forEach((s) => {
+      const d = document.createElement('div');
+      d.textContent = `${s.step}. ${s.action}${s.ref ? ' ' + s.ref : ''} — ${s.thought || ''}`;
+      traceEl.appendChild(d);
+    });
+    const d = document.createElement('div');
+    d.textContent = (r.status === 'needs_input' || r.status === 'needs_confirmation' ? '⤷ ' : '✓ ') + (r.result || r.error || '');
+    d.style.color = '#e6e6e6';
+    traceEl.appendChild(d);
+    agentStat.textContent = r.status || (r.ok ? 'done' : 'failed');
+  } catch (e) { agentStat.textContent = 'error'; }
+  refreshTabs();
+}
+document.getElementById('run').onclick = runAgent;
+goalIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgent(); });
+setInterval(() => { refreshTabs(); refreshAssist(false); }, 4000);
+setTimeout(() => { refreshTabs(); refreshAssist(true); }, 1200);
+
 document.getElementById('go').onclick = () => send({ t: 'goto', url: urlIn.value });
 document.getElementById('back').onclick = () => send({ t: 'back' });
 urlIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') send({ t: 'goto', url: urlIn.value }); });
