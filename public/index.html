@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ego-web — browser for AI agents</title>
+<title>Browser</title>
 <style>
   :root { --bg:#0a0a0a; --panel:#121212; --line:#262626; --fg:#e6e6e6; --dim:#8a8a8a; }
   * { box-sizing: border-box; }
@@ -32,11 +32,10 @@
 </head>
 <body>
 <header>
-  <span class="brand">ego-web<small>browser for AI agents</small></span>
   <button id="back" title="Back">←</button>
-  <input id="url" placeholder="https://example.com — log in here once; your agent reuses the session" />
+  <input id="url" placeholder="Search or enter address" />
   <button id="go">Go</button>
-  <label class="stat">space
+  <label class="stat" id="spaceWrap">profile
     <input id="space" value="default" size="9" style="margin-left:6px" />
   </label>
   <span class="stat" id="stat">connecting…</span>
@@ -45,14 +44,17 @@
 <main><canvas id="screen" width="1280" height="800"></canvas></main>
 
 <footer>
-  <span>Click and type directly on the page — you are driving the real browser.</span>
-  <span><kbd>Enter</kbd> in the URL bar navigates</span>
+  <span>Click and type on the page — you are driving the real browser. Sign in once and it is remembered.</span>
   <span id="title"></span>
 </footer>
 
 <script>
 const qs   = new URLSearchParams(location.search);
 const key  = qs.get('key') || '';
+// Embedded-tool mode: no branding, no profile picker, no chrome the host didn't ask for.
+// The task space follows the host user (fr_user), so each account keeps its own sessions.
+const embed  = qs.has('embed');
+const frUser = qs.get('fr_user') || '';
 const cv   = document.getElementById('screen');
 const ctx  = cv.getContext('2d');
 const stat = document.getElementById('stat');
@@ -61,10 +63,20 @@ const urlIn= document.getElementById('url');
 const spaceIn = document.getElementById('space');
 let ws, lastUrl = '', imgW = 1280, imgH = 800;
 
+if (frUser) spaceIn.value = 'u_' + frUser;      // per-user profile, chosen by the host
+if (embed) {                                     // strip everything that isn't the browser itself
+  document.getElementById('spaceWrap').style.display = 'none';
+  document.querySelector('footer').style.display = 'none';
+  document.querySelector('main').style.padding = '0';
+  document.getElementById('screen').style.borderRadius = '0';
+  document.getElementById('screen').style.border = 'none';
+}
+
 function connect() {
   const space = spaceIn.value || 'default';
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?space=${encodeURIComponent(space)}${key ? '&key=' + encodeURIComponent(key) : ''}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?space=${encodeURIComponent(space)}`
+    + (key ? '&key=' + encodeURIComponent(key) : '') + (embed ? '&embed=1' : ''));
   ws.onopen  = () => (stat.textContent = 'live');
   ws.onclose = () => { stat.textContent = 'disconnected — retrying'; setTimeout(connect, 1500); };
   ws.onerror = () => (stat.textContent = 'error');

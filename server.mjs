@@ -199,12 +199,28 @@ const json = (res, code, obj) => {
   res.end(b);
 };
 const body = (req) => new Promise((ok) => { let d = ''; req.on('data', (c) => (d += c)); req.on('end', () => { try { ok(d ? JSON.parse(d) : {}); } catch { ok({}); } }); });
+
+/* Embedded-tool mode (same contract as the other tools in the suite):
+ *   ?embed=…    → chrome-less, full-bleed, zero branding
+ *   ?fr_user=…  → per-user task space, so each account gets its own isolated profile
+ * Auth is INVISIBLE, never a login screen: the host passes ?key= inside the iframe URL, or
+ * the deployment sits behind a white-label proxy and sets EGO_EMBED_OPEN=1. */
+const EMBED_OPEN = (process.env.EGO_EMBED_OPEN || '') === '1';
+const FRAME_ANCESTORS = process.env.EGO_FRAME_ANCESTORS ||
+  "'self' https://*.vercel.app https://*.up.railway.app";
+
 const authed = (req, url) => {
-  if (!API_KEY) return true; // open only if no key configured
+  if (!API_KEY) return true;                    // no key configured → open
+  if (EMBED_OPEN && url.searchParams.has('embed')) return true;  // fronted by the wl-* proxy
   const h = req.headers.authorization || '';
   if (h === `Bearer ${API_KEY}`) return true;
   return url.searchParams.get('key') === API_KEY;
 };
+
+/** The task space for a request: per-user when the host passes fr_user. */
+const spaceOf = (url, given) =>
+  given || url.searchParams.get('space') ||
+  (url.searchParams.get('fr_user') ? 'u_' + url.searchParams.get('fr_user') : DEFAULT_SPACE);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -214,15 +230,26 @@ const server = http.createServer(async (req, res) => {
     if (p === '/healthz') return json(res, 200, { ok: true, spaces: [...spaces.keys()], headless: HEADLESS });
 
     if (p === '/' || p === '/index.html') {
-      if (!authed(req, url)) { res.writeHead(401, { 'content-type': 'text/html' }); return res.end('<h3>401 — add ?key=YOUR_EGO_API_KEY</h3>'); }
+      // Never render a login screen inside an embed — stay blank so the host shows its own state.
+      if (!authed(req, url)) {
+        res.writeHead(url.searchParams.has('embed') ? 204 : 401,
+                      { 'content-type': 'text/html; charset=utf-8' });
+        return res.end(url.searchParams.has('embed') ? '' : '<h3>401</h3>');
+      }
       const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(html);
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        // embeddable: no X-Frame-Options, explicit frame-ancestors instead
+        'content-security-policy': `frame-ancestors ${FRAME_ANCESTORS};`,
+        'cache-control': 'no-store',
+      });
+      return res.end(html);
     }
 
     if (p.startsWith('/v1/')) {
       if (!authed(req, url)) return json(res, 401, { ok: false, error: 'unauthorized' });
       const b = req.method === 'POST' ? await body(req) : Object.fromEntries(url.searchParams);
-      const space = b.space || url.searchParams.get('space') || DEFAULT_SPACE;
+      const space = spaceOf(url, b.space);
 
       if (p === '/v1/run') return json(res, 200, await runScript(String(b.script || ''), space));
       if (p === '/v1/goto') { const f = makeFacades(space, []); return json(res, 200, { ok: true, ...(await f.page.goto(String(b.url))) }); }
@@ -249,7 +276,7 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 wss.on('connection', async (ws, req, url) => {
-  const space = url.searchParams.get('space') || DEFAULT_SPACE;
+  const space = spaceOf(url);
   let alive = true;
   ws.on('close', () => (alive = false));
   ws.on('message', async (raw) => {

@@ -68,6 +68,32 @@ Bot walls (LinkedIn, X, dashboards) block fresh headless sessions. Here you open
 log in **as a human**, and the cookies land in that space's profile on the volume. Every later
 agent run in that space is already authenticated — ego-lite's core idea, server-side.
 
+
+## Embedded-tool mode (no branding, no auth screen)
+
+Same contract as the other embedded tools in the suite — drop it in an iframe and it renders
+as a plain browser: no product name, no login screen, full-bleed.
+
+```tsx
+<EmbedFrame src={`${EGO_URL}/?embed=${reloadKey}&fr_user=${encodeURIComponent(userId)}&key=${EGO_KEY}`}
+            title="Browser" tool="browser" reloadKey={reloadKey} />
+```
+
+* `?embed=` — hides all chrome the host didn't ask for (profile picker, footer, borders) and
+  serves `frame-ancestors` instead of `X-Frame-Options`, so framing works.
+* `?fr_user=` — each account gets its **own task space** (`u_<id>`), i.e. its own cookies and
+  logged-in sessions. Users never see each other's sessions.
+* **Auth is invisible**: the host puts `key=` in the iframe URL. If the deployment sits behind a
+  white-label proxy that already authenticates, set `EGO_EMBED_OPEN=1` and the `key` can be
+  dropped entirely. A non-embedded request without a key still returns 401.
+* When unauthorised inside an embed it returns **204 (blank)** instead of an error page, so the
+  host shows its own warming/error state.
+
+| var | meaning |
+|---|---|
+| `EGO_EMBED_OPEN` | `1` = `?embed=` needs no key (use behind an authenticating proxy) |
+| `EGO_FRAME_ANCESTORS` | CSP frame-ancestors allowlist (default: self + `*.vercel.app` + `*.up.railway.app`) |
+
 ## Deploy on Railway
 
 Dockerfile-based, binds `PORT`. Set `EGO_API_KEY` (always — the viewer drives a real browser),
