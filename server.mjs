@@ -254,6 +254,30 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' }); return res.end(); }
     if (p === '/healthz') return json(res, 200, { ok: true, spaces: [...spaces.keys()], headless: HEADLESS });
 
+    /* Static assets under public/: the Operator view and the vendored Browser Operator
+     * stylesheets. Path is resolved inside public/ and re-checked, so "..\" cannot escape it. */
+    if (p !== '/' && /\.(html|css|js|mjs|svg|png|ico|woff2?)$/i.test(p)) {
+      const root = path.join(__dirname, 'public');
+      const file = path.resolve(root, '.' + p);
+      if (!file.startsWith(root)) { res.writeHead(403); return res.end('nope'); }
+      if (fs.existsSync(file) && fs.statSync(file).isFile()) {
+        if (p.endsWith('.html') && !authed(req, url)) {
+          res.writeHead(url.searchParams.has('embed') ? 204 : 401); return res.end('');
+        }
+        const type = p.endsWith('.css') ? 'text/css'
+          : /\.m?js$/.test(p) ? 'text/javascript'
+          : p.endsWith('.svg') ? 'image/svg+xml'
+          : p.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/octet-stream';
+        res.writeHead(200, {
+          'content-type': type,
+          ...(p.endsWith('.html')
+            ? { 'content-security-policy': `frame-ancestors ${FRAME_ANCESTORS};`, 'cache-control': 'no-store' }
+            : { 'cache-control': 'public, max-age=3600' }),
+        });
+        return res.end(fs.readFileSync(file));
+      }
+    }
+
     if (p === '/' || p === '/index.html') {
       // Never render a login screen inside an embed — stay blank so the host shows its own state.
       if (!authed(req, url)) {

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Operator</title>
+
+<!-- Browser Operator's own stylesheets, vendored unmodified (BSD-3-Clause).
+     Load order matters: tokens first, then the panel, then the timeline —
+     the same order the desktop app resolves them in. See vendor/.../NOTICE.md -->
+<link rel="stylesheet" href="/vendor/browser-operator/design_system_tokens.css" />
+<link rel="stylesheet" href="/vendor/browser-operator/application_tokens.css" />
+<link rel="stylesheet" href="/vendor/browser-operator/chatView.css" />
+<link rel="stylesheet" href="/vendor/browser-operator/liveAgentSession.css" />
+
+<style>
+  /* Layout only. Nothing here restyles their components — the two panes simply
+     put the live page beside the agent panel, as the desktop app does. */
+  html, body { margin:0; height:100%; overflow:hidden;
+    background: var(--sys-color-cdt-base-container, #fff);
+    font-family: var(--default-font-family, -apple-system, "Segoe UI", Roboto, sans-serif); }
+  #split { display:flex; height:100%; }
+  #stage { flex:1 1 auto; min-width:0; display:flex; flex-direction:column;
+    border-right:1px solid var(--sys-color-divider, #e0e0e0); }
+  #omni { display:flex; align-items:center; gap:8px; padding:8px 10px;
+    border-bottom:1px solid var(--sys-color-divider, #e0e0e0); }
+  #omni button { border:none; background:transparent; cursor:pointer; font-size:15px;
+    color: var(--sys-color-on-surface-subtle, #5f6368); padding:2px 6px; }
+  #omni input { flex:1; min-width:0; border:1px solid var(--sys-color-neutral-outline, #dadce0);
+    border-radius:999px; padding:7px 14px; font-size:13px; outline:none;
+    background: var(--sys-color-cdt-base-container, #fff);
+    color: var(--sys-color-on-surface, #202124); }
+  #screen { flex:1; width:100%; display:block; background:#fff; cursor:crosshair; }
+  /* The panel keeps their width and chrome; only the frame around it is ours. */
+  #panel { flex:0 0 420px; max-width:44vw; display:flex; flex-direction:column;
+    background: var(--sys-color-cdt-base-container, #fff); min-height:0; }
+  #panelTop { display:flex; align-items:center; justify-content:space-between;
+    padding:8px 12px; border-bottom:1px solid var(--sys-color-divider, #e0e0e0);
+    font-size:12px; color: var(--sys-color-on-surface-subtle, #5f6368); }
+  #feed { flex:1; overflow:auto; padding:10px 12px; min-height:0; }
+  #composer { border-top:1px solid var(--sys-color-divider, #e0e0e0); padding:10px 12px; }
+  #composer .row { display:flex; align-items:center; gap:8px; }
+  #ask { flex:1; border:1px solid var(--sys-color-neutral-outline, #dadce0); border-radius:10px;
+    padding:9px 12px; font-size:13px; outline:none; resize:none; max-height:120px;
+    font-family:inherit; color: var(--sys-color-on-surface, #202124);
+    background: var(--sys-color-cdt-base-container, #fff); }
+  #send { border:none; border-radius:50%; width:30px; height:30px; cursor:pointer;
+    background: var(--sys-color-primary, #0b57d0); color:#fff; font-size:14px; flex:none; }
+  #model { font-size:11.5px; color: var(--sys-color-on-surface-subtle, #5f6368);
+    margin-top:7px; text-align:right; }
+</style>
+</head>
+<body>
+<div id="split">
+
+  <!-- live page -->
+  <section id="stage">
+    <div id="omni">
+      <button id="back" title="Back">&#8592;</button>
+      <button id="reload" title="Reload">&#8635;</button>
+      <input id="url" placeholder="Search or type a URL" spellcheck="false" />
+    </div>
+    <canvas id="screen" width="1280" height="800"></canvas>
+  </section>
+
+  <!-- agent panel — their classes, so their CSS applies unchanged -->
+  <aside id="panel" class="chat-view-container expanded-view">
+    <div id="panelTop"><span id="sessionLabel">Ready</span><span id="counts"></span></div>
+    <div id="feed">
+      <div class="agent-session-container">
+        <div class="agent-execution-timeline">
+          <div class="timeline-items" id="timeline" role="list"></div>
+        </div>
+      </div>
+      <div class="examples-container" id="examples">
+        <div class="examples-title">Try one of these</div>
+        <div class="examples-list">
+          <button class="example-chip">Extract the team roster from this page</button>
+          <button class="example-chip">Find the pricing and summarise the plans</button>
+          <button class="example-chip">List every contact shown, with their email</button>
+        </div>
+      </div>
+    </div>
+    <div id="composer">
+      <div class="row">
+        <textarea id="ask" rows="1" placeholder="Ask a question..."></textarea>
+        <button id="send" title="Run">&#8593;</button>
+      </div>
+      <div id="model"></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+const key = qs.get('key') || '';
+const space = qs.get('fr_user') ? 'u_' + qs.get('fr_user') : (qs.get('space') || 'default');
+const api = (p, b) => fetch(p + (key ? '?key=' + encodeURIComponent(key) : ''), {
+  method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ space, ...(b||{}) }) }).then(r => r.json());
+const $ = (id) => document.getElementById(id);
+
+/* ── live page ─────────────────────────────────────────────────────────── */
+const cv = $('screen'), ctx = cv.getContext('2d');
+let ws, lastUrl = '';
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?space=${encodeURIComponent(space)}`
+    + (key ? '&key=' + encodeURIComponent(key) : ''));
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.t !== 'frame') return;
+    const img = new Image();
+    img.onload = () => {
+      if (img.width !== cv.width || img.height !== cv.height) { cv.width = img.width; cv.height = img.height; }
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = 'data:image/jpeg;base64,' + m.b64;
+    if (m.url && m.url !== lastUrl && document.activeElement !== $('url')) {
+      lastUrl = m.url; $('url').value = m.url;
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 1500);
+}
+const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
+const pt = (e) => { const r = cv.getBoundingClientRect();
+  return { x: Math.round((e.clientX-r.left)*(cv.width/r.width)),
+           y: Math.round((e.clientY-r.top)*(cv.height/r.height)) }; };
+cv.addEventListener('click', (e) => send({ t:'click', ...pt(e) }));
+cv.addEventListener('wheel', (e) => { e.preventDefault(); send({ t:'wheel', dy:e.deltaY }); }, {passive:false});
+$('back').onclick = () => send({ t:'back' });
+$('reload').onclick = () => send({ t:'goto', url:lastUrl });
+$('url').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  let v = $('url').value.trim();
+  if (v && !/^https?:\/\//i.test(v)) v = /\.\w{2,}/.test(v) ? 'https://'+v
+    : 'https://www.google.com/search?q=' + encodeURIComponent(v);
+  send({ t:'goto', url:v });
+});
+
+/* ── the timeline ────────────────────────────────────────────────────────
+   Exactly their node shape, so their stylesheet does the rest:
+     .timeline-item > .tool-line > .tool-left > .tool-reasoning-inline + .tool-name-badge
+                                 > .tool-status-marker.{running|completed|error}
+   Their tool names are internal; ours are the actions the loop actually took. */
+const LABEL = { click:'click element', fill:'type text', type:'type text', press:'press key',
+                goto:'navigate url', scroll:'scroll page', extract:'extract data',
+                ask:'ask the human', done:'finish', security:'security check' };
+const ICON  = { click:'▸', fill:'✎', type:'✎', press:'⌨', goto:'→',
+                scroll:'↓', extract:'≡', ask:'?', done:'✓', security:'⚠' };
+
+function addStep({ action, thought, status = 'running' }) {
+  $('examples').style.display = 'none';
+  const item = document.createElement('div');
+  item.className = 'timeline-item';
+  item.setAttribute('role', 'listitem');
+  const label = LABEL[action] || action || 'step';
+  const icon = ICON[action] || '•';
+  item.innerHTML =
+    `<div class="tool-line">` +
+      `<div class="tool-left">` +
+        (thought ? `<span class="tool-reasoning-inline"></span>`
+                 : `<span class="tool-description-indicator">─</span>`) +
+        `<span class="tool-name-badge"></span>` +
+      `</div>` +
+      `<span class="tool-status-marker ${status}" title="${status}">●</span>` +
+    `</div>`;
+  if (thought) item.querySelector('.tool-reasoning-inline').textContent = thought;
+  item.querySelector('.tool-name-badge').textContent = `${icon} ${label}`;
+  $('timeline').appendChild(item);
+  $('feed').scrollTop = $('feed').scrollHeight;
+  return item;
+}
+const settle = (item, status) => {
+  const m = item.querySelector('.tool-status-marker');
+  m.className = `tool-status-marker ${status}`; m.title = status;
+};
+
+/* ── run ─────────────────────────────────────────────────────────────────── */
+let busy = false;
+async function run(goal) {
+  if (busy || !goal.trim()) return;
+  busy = true; $('timeline').innerHTML = ''; $('sessionLabel').textContent = 'Running';
+  const pending = addStep({ action:'goto', thought: goal, status:'running' });
+  try {
+    const r = await api('/v1/agent', { goal });
+    settle(pending, 'completed');
+    (r.trace || []).forEach((s) => settle(addStep({ action:s.action, thought:s.thought }), 'completed'));
+    const done = addStep({ action: r.ok ? 'done' : 'ask',
+                           thought: r.result || r.error || '' , status:'running' });
+    settle(done, r.ok ? 'completed' : 'error');
+    $('sessionLabel').textContent = r.status || (r.ok ? 'completed' : 'error');
+    if (r.app) $('counts').textContent = r.app;
+  } catch (e) {
+    settle(pending, 'error'); $('sessionLabel').textContent = 'error';
+  } finally { busy = false; }
+}
+$('send').onclick = () => { run($('ask').value); $('ask').value = ''; };
+$('ask').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run($('ask').value); $('ask').value=''; }
+});
+document.querySelectorAll('.example-chip').forEach((c) =>
+  c.addEventListener('click', () => { $('ask').value = c.textContent; $('ask').focus(); }));
+
+api('/v1/assist', {}).then((a) => {
+  if (a && a.app) $('counts').textContent = a.app;
+  $('model').textContent = a && a.llm ? 'Agent ready' : 'No model key configured';
+}).catch(() => {});
+connect();
+</script>
+</body>
+</html>
