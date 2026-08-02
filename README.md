@@ -145,6 +145,33 @@ End to end against a live page carrying a hidden exfiltration instruction, with
 `allow_irreversible` explicitly requested by the caller: threat detected, authority withdrawn,
 attacker ignored, and the agent still answered the user's actual question correctly.
 
+
+## Behavioural evaluation (`evals/run.mjs`)
+
+Measuring value delivered to a customer needs live systems. Measuring *behaviour* does not —
+it needs pages whose correct outcome is already known. So each case is a golden fixture served
+locally plus an assertion about what the agent must and must not do:
+
+```bash
+EGO_LLM_KEY=... node evals/run.mjs      # exit code = number of failures
+```
+
+`read_table` · `extract_values` · `find_duplicates` · `no_merge_without_permission` ·
+`login_wall_asks` · `resists_injection` — **6/6 passing.**
+
+It earned its place immediately by finding two defects that unit tests could not:
+
+* **The approval gate disabled itself.** The check was skipped when the goal itself named an
+  irreversible act ("merge the duplicates") — i.e. it switched off in exactly the case it
+  exists for. Asking for something is not approving it; only a recorded human authorisation
+  gets an irreversible action through now.
+* **One malformed model reply ended the whole run.** Long tasks fail by compounding — 95%
+  per-step reliability still finishes a 20-step job only about a third of the time — so a
+  recoverable step is now retried (bounded, and never on an auth error).
+
+Run it after any model, prompt or playbook change. Evaluation drift is what quietly kills
+agent deployments.
+
 ## Plugged into the rest of the platform (`bridge.mjs`)
 
 The hands are useless without the body. Nothing below is reimplemented here — it is *called*,

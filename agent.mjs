@@ -149,13 +149,26 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       trail.length ? `\nWHAT YOU ALREADY DID:\n${trail.slice(-6).map((t, i) => `${i + 1}. ${t}`).join('\n')}` : '',
     ].filter(Boolean).join('\n');
 
-    let decision;
-    try {
-      decision = parseJson(await think(SYSTEM, user));
-    } catch (e) {
-      return { ok: false, error: String(e.message).slice(0, 200), steps: trail, app: pb.name };
+    // A single malformed reply must not end the run. Long tasks fail mostly by compounding:
+    // per-step reliability of 95% still only finishes a 20-step job about a third of the time,
+    // so every recoverable step is worth recovering. Bounded, so it cannot spin.
+    let decision = null;
+    let lastErr = '';
+    for (let attempt = 1; attempt <= 3 && !decision?.action; attempt++) {
+      try {
+        const nudge = attempt === 1 ? '' :
+          '\n\nYour previous reply could not be parsed. Reply with ONE JSON object and nothing else.';
+        decision = parseJson(await think(SYSTEM, user + nudge));
+      } catch (e) {
+        lastErr = String(e.message).slice(0, 200);
+        if (/\b(401|403)\b/.test(lastErr)) break;      // bad key: retrying cannot help
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
     }
-    if (!decision?.action) return { ok: false, error: 'model returned no action', steps: trail, app: pb.name };
+    if (!decision?.action) {
+      return { ok: false, app: pb.name, steps: trail, threats,
+               error: lastErr || 'model returned no usable action after 3 attempts' };
+    }
 
     const { action, ref, text, url, result, thought } = decision;
     const line = `${action}${ref ? ' ' + ref : ''}${text ? ' "' + String(text).slice(0, 40) + '"' : ''}${url ? ' ' + url : ''}`;
@@ -165,7 +178,12 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       .catch(() => {});
 
     // Safety gate — the model can propose it, the loop still refuses it.
-    if (!auth.allowIrreversible && (IRREVERSIBLE.test(goal) === false) && ref) {
+    //
+    // Asking for something is NOT approving it. An earlier version skipped this check when the
+    // goal itself named an irreversible act ("merge the duplicates"), i.e. it disabled the gate
+    // in exactly the case the gate exists for. Only an explicit authorisation — which upstream
+    // means a recorded human approval — lets an irreversible action through.
+    if (!auth.allowIrreversible && ref) {
       const label = (snap.elements.split('\n').find((l) => l.startsWith(ref + ' ')) || '');
       if (action === 'click' && IRREVERSIBLE.test(label)) {
         return { ok: true, status: 'needs_confirmation', app: pb.name, steps: trail, threats,
