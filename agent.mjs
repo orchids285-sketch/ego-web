@@ -24,7 +24,19 @@ const MAX_STEPS = Number(process.env.EGO_MAX_STEPS || 14);
 
 export function llmReady() { return Boolean(LLM_KEY); }
 
-async function think(system, user, maxTokens = 500) {
+/** A run's cost, counted as it happens.
+ *
+ * Driving a UI costs 10–100× an API call for the same outcome, and a step budget says nothing
+ * about spend. Counting tokens per run is what makes the API-first rule checkable instead of
+ * merely stated, and it is what an operator needs before letting this loose on a schedule. */
+function newMetrics() {
+  return { llmCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0,
+           toolCalls: 0, toolCallsByName: {}, subAgents: 0, durationMs: 0 };
+}
+
+const done = (m, t0) => (m.durationMs = Date.now() - t0, m);
+
+async function think(system, user, maxTokens = 500, metrics = null) {
   const r = await fetch(LLM_URL, {
     method: 'POST',
     headers: {
@@ -40,6 +52,13 @@ async function think(system, user, maxTokens = 500) {
   });
   if (!r.ok) throw new Error(`llm ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
+  if (metrics) {
+    metrics.llmCalls++;
+    const u = j?.usage || {};
+    metrics.promptTokens += u.prompt_tokens || 0;
+    metrics.completionTokens += u.completion_tokens || 0;
+    metrics.totalTokens += u.total_tokens || ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
+  }
   return j?.choices?.[0]?.message?.content || '';
 }
 
@@ -61,7 +80,7 @@ Elements inside an embedded frame appear under a "--- frame N ---" heading and a
 @fNe1, @fNe2. Use those refs exactly as written; they work like any other.
 
 Reply with STRICT JSON, one action:
-{"thought":"<one short line>","action":"click|fill|press|goto|scroll|extract|ask|done",
+{"thought":"<one short line>","action":"click|fill|press|goto|scroll|extract|delegate|ask|done",
  "ref":"@eN","text":"...","url":"...","result":"..."}
 
 - click   : press @ref
@@ -70,6 +89,10 @@ Reply with STRICT JSON, one action:
 - goto    : navigate to "url"
 - scroll  : reveal more of the page
 - extract : you have read what was asked; put the answer in "result"
+- delegate: hand ONE self-contained sub-task to a fresh agent; describe it fully in "text",
+            because it starts with no memory of this conversation. Use it when a step needs
+            its own sequence of actions (e.g. "open each of these 5 profiles and read the
+            role"). You get its answer back and continue. Not available inside a delegation.
 - ask     : you need a human decision; explain in "result"
 - done    : the goal is achieved; summarise in "result"
 
@@ -92,7 +115,8 @@ RULES
  * @param {(s:object)=>void} [o.onStep]
  */
 export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversible = false,
-                                noApi = false, acknowledgeRestricted = false, onStep }) {
+                                noApi = false, acknowledgeRestricted = false, onStep,
+                                metrics = null, depth = 0 }) {
   if (!llmReady()) return { ok: false, error: 'no LLM key configured (EGO_LLM_KEY / OPENROUTER_API_KEY)' };
 
   /* API-first. Clicking is the fallback, never the ambition: if the platform can already
@@ -111,11 +135,14 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
    * like someone who works here, not a stranger clicking around. */
   const companyContext = await bridge.context(goal).catch(() => '');
 
+  const M = metrics || newMetrics();
+  const startedAt = Date.now();
   const trail = [];
   let last = '';
   let tainted = false;                  // has a page tried to instruct us?
   const visitedOrigins = [];
   const threats = [];
+  const delegated = [];   // answers handed back by sub-agents
 
   for (let step = 1; step <= maxSteps; step++) {
     const snap = await page.snapshot();
@@ -142,7 +169,7 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
     const pol = guard.posture(pb.id);
     if (pol.level === 'prohibited' && !acknowledgeRestricted) {
       bridge.audit('agent.posture_blocked', { app: pb.name, url: snap.url }).catch(() => {});
-      return { ok: true, status: 'blocked', app: pb.name, steps: trail, threats,
+      return { ok: true, status: 'blocked', app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                result: `${pb.name}: ${pol.note} Automating it can get the account banned, so I stopped. `
                      + 'Re-run with acknowledge_restricted if you accept that risk on your own account.' };
     }
@@ -151,7 +178,7 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
     const budget = guard.withinBudget({ appId: pb.id, actionsTaken: trail.length,
                                         originsTouched: visitedOrigins.length });
     if (!budget.ok) {
-      return { ok: true, status: 'max_steps', app: pb.name, steps: trail, threats,
+      return { ok: true, status: 'max_steps', app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                result: `Stopped: ${budget.reason}. Ask again to continue.` };
     }
 
@@ -160,6 +187,10 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       auth.allowIrreversible ? 'The user HAS authorised irreversible actions for this goal.' : '',
       auth.note,
       '',
+      delegated.length
+        ? 'ANSWERS ALREADY OBTAINED FROM SUB-AGENTS (use them, do not delegate again):\n'
+          + delegated.map((d, i) => `${i + 1}. ${d.task} -> ${d.answer}`).join('\n')
+        : '',
       companyContext,          // company procedures + which real APIs exist (from the platform)
       companyContext ? '' : null,
       brief(pb),
@@ -181,7 +212,7 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       try {
         const nudge = attempt === 1 ? '' :
           '\n\nYour previous reply could not be parsed. Reply with ONE JSON object and nothing else.';
-        decision = parseJson(await think(SYSTEM, user + nudge));
+        decision = parseJson(await think(SYSTEM, user + nudge, 500, M));
       } catch (e) {
         lastErr = String(e.message).slice(0, 200);
         if (/\b(401|403)\b/.test(lastErr)) break;      // bad key: retrying cannot help
@@ -189,11 +220,12 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       }
     }
     if (!decision?.action) {
-      return { ok: false, app: pb.name, steps: trail, threats,
+      return { ok: false, app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                error: lastErr || 'model returned no usable action after 3 attempts' };
     }
 
     const { action, ref, text, url, result, thought } = decision;
+    M.toolCalls++; M.toolCallsByName[action] = (M.toolCallsByName[action] || 0) + 1;
     const line = `${action}${ref ? ' ' + ref : ''}${text ? ' "' + String(text).slice(0, 40) + '"' : ''}${url ? ' ' + url : ''}`;
     onStep?.({ step, thought, action, ref, text, url, page: snap.url });
     // Trust layer: action, reason, source, result — every step traceable.
@@ -209,7 +241,7 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
     if (!auth.allowIrreversible && ref) {
       const label = (snap.elements.split('\n').find((l) => l.startsWith(ref + ' ')) || '');
       if (action === 'click' && IRREVERSIBLE.test(label)) {
-        return { ok: true, status: 'needs_confirmation', app: pb.name, steps: trail, threats,
+        return { ok: true, status: 'needs_confirmation', app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                  result: `About to ${label.trim()} — that is irreversible. Confirm and I will finish.` };
       }
     }
@@ -220,18 +252,43 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       const nav = guard.navigationAllowed(url, { visitedOrigins, goal, tainted });
       if (!nav.allowed) {
         bridge.audit('agent.egress_blocked', { goal, url, reason: nav.reason }).catch(() => {});
-        return { ok: true, status: 'blocked', app: pb.name, steps: trail, threats,
+        return { ok: true, status: 'blocked', app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                  result: `Refused to navigate to ${url}: ${nav.reason}.` };
       }
     }
 
     try {
       if (action === 'done' || action === 'extract')
-        return { ok: true, status: 'done', app: pb.name, steps: trail, threats,
+        return { ok: true, status: 'done', app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                  result: result || thought || 'done' };
       if (action === 'ask')
-        return { ok: true, status: 'needs_input', app: pb.name, steps: trail, threats,
+        return { ok: true, status: 'needs_input', app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                  result: result || thought || 'need a decision' };
+      if (action === 'delegate') {
+        // A sub-agent is a fresh run over the same page, with its own budget and no memory of
+        // this conversation — which is the point: a focused brief beats a long context. It
+        // shares the parent's metrics so a run's cost stays one number, inherits the taint
+        // (a hostile page does not become trustworthy by delegating), and cannot delegate
+        // further, so the tree can never run away.
+        if (depth >= 1) { trail.push(`${line} -> refused: already a sub-agent`); continue; }
+        M.subAgents++;
+        onStep?.({ step, action: 'delegate', thought: text, page: snap.url });
+        const sub = await runGoal({
+          page, goal: String(text || '').slice(0, 600),
+          maxSteps: Math.max(3, Math.floor(maxSteps / 2)),
+          allowIrreversible: auth.allowIrreversible, noApi: true,
+          acknowledgeRestricted, metrics: M, depth: depth + 1,
+          onStep: (s) => onStep?.({ ...s, parentStep: step, sub: true }),
+        });
+        if (sub.threats?.length) { tainted = true; threats.push(...sub.threats); }
+        const answer = String(sub.result || sub.error || 'no answer');
+        trail.push(`${line} -> ${answer.slice(0, 160)}`);
+        // Surface the answer at the top of the next prompt. Left only in the history the
+        // parent kept delegating the same sub-task instead of concluding, because a line
+        // buried in "what you already did" reads as an action taken, not as an answer given.
+        delegated.push({ task: String(text || '').slice(0, 120), answer: answer.slice(0, 600) });
+        continue;
+      }
       if (action === 'click') await page.click(ref);
       else if (action === 'fill') await page.fill(ref, text ?? '');
       else if (action === 'press') await page.press(text || 'Enter');
@@ -248,7 +305,8 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
     // defences and what makes an account look like a bot.
     await new Promise((r) => setTimeout(r, budget.pace || 400));
   }
-  return { ok: true, status: 'max_steps', steps: trail, result: 'Reached the step limit without finishing.' };
+  return { ok: true, status: 'max_steps', steps: trail, metrics: done(M, startedAt),
+           result: 'Reached the step limit without finishing.' };
 }
 
 /** Run one named task from the current app's playbook. */

@@ -120,6 +120,33 @@ OpenRouter model, so this adds no new paid dependency.
 
 
 
+
+## What a run cost, and sub-agents
+
+Every run reports its own bill, because driving a UI costs 10-100x an API call for the same
+outcome and a step budget says nothing about spend:
+
+```json
+"metrics": { "llmCalls": 5, "promptTokens": 17800, "completionTokens": 716,
+             "totalTokens": 18516, "toolCalls": 3,
+             "toolCallsByName": { "delegate": 1, "extract": 1, "done": 1 },
+             "subAgents": 1, "durationMs": 23969 }
+```
+
+It pays for itself immediately: the first measured run showed **4,326 prompt tokens for a
+single step** — the snapshot is the expensive part, which is not obvious until it is counted.
+
+`delegate` hands one self-contained sub-task to a fresh agent over the same page. It gets a
+focused brief instead of a long history, shares the parent's metric counters so a run stays one
+number, inherits the taint (a hostile page does not become trustworthy by delegating), and
+cannot delegate again — the tree is one level deep by construction.
+
+The sub-agent's answer is surfaced at the top of the parent's next prompt rather than left in
+its history. That single change matters more than it sounds: buried in "what you already did"
+it reads as an action taken rather than an answer given, and the parent kept re-delegating the
+same task. Measured before and after on the same goal — 2 sub-agents and 38,284 tokens ending
+with no conclusion, versus 1 sub-agent and 18,516 tokens ending in `done` with the right answer.
+
 ## It can see inside components and frames
 
 `querySelectorAll` stops at every shadow boundary and never crosses into an iframe — and the
