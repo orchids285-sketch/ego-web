@@ -4,3 +4,6 @@ _server*.log
 _p*.json
 package-lock.json
 evals/_profile/
+.env
+.env.*
+*_key.txt
