@@ -1,0 +1,84 @@
+/* _compat.css — NOT vendored. This file is ours.
+ *
+ * Browser Operator's stylesheets are a fork of the DevTools ones, and DevTools supplies part
+ * of its token layer at runtime. The fork therefore uses 31 tokens it never defines. Inside
+ * the desktop app they resolve; served on their own they fall back to the browser default,
+ * which is why a "running" status dot rendered black instead of muted grey.
+ *
+ * So this maps each one onto the reference palette that IS vendored, following the same
+ * convention the vendored file uses (e.g. --sys-color-on-surface: var(--ref-palette-neutral10)).
+ * Nothing in their CSS is edited; this only fills the gaps, and it is kept in its own file so
+ * the line between their code and ours stays obvious.
+ *
+ * Load AFTER design_system_tokens.css and application_tokens.css, BEFORE the component CSS.
+ */
+
+:root {
+  /* Surfaces and outlines */
+  --sys-color-on-surface-variant: var(--ref-palette-neutral-variant30);
+  --sys-color-outline-variant: var(--ref-palette-neutral-variant80);
+  --sys-color-primary-container: var(--ref-palette-primary90);
+  --sys-color-on-primary-container: var(--ref-palette-primary10);
+  --sys-color-secondary-container: var(--ref-palette-secondary90);
+  --sys-color-accent-green: var(--ref-palette-green40);
+
+  /* rgb() triples — used inside rgba(var(--x-rgb), a) so they must be bare numbers */
+  --sys-color-primary-rgb: 11 87 208;
+  --sys-color-error-rgb: 179 38 30;
+  --sys-color-accent-green-rgb: 24 128 56;
+  --sys-color-tertiary-rgb: 122 87 0;
+
+  /* Legacy --color-* names the fork still references */
+  --color-primary-1: var(--ref-palette-primary30);
+  --color-primary-container: var(--ref-palette-primary90);
+  --color-primary-rgb: 11 87 208;
+  --color-accent-1: var(--ref-palette-primary40);
+  --color-accent-2: var(--ref-palette-secondary40);
+  --color-accent-blue: var(--ref-palette-blue50);
+  --color-error: var(--ref-palette-error40);
+  --color-text-inverted: var(--ref-palette-neutral100);
+  --color-background-elevation-0: var(--ref-palette-neutral100);
+  --color-background-opacity-90: rgb(255 255 255 / 90%);
+  --color-details-hairline: var(--ref-palette-neutral90);
+  --color-scrollbar: var(--ref-palette-neutral80);
+  --color-shadow: rgb(0 0 0 / 12%);
+  --color-shadow-subtle: rgb(0 0 0 / 6%);
+
+  /* Two palette steps the fork uses but the vendored palette stops short of */
+  --ref-palette-green4: rgb(7 42 20);
+  --ref-palette-neutral87: rgb(222 222 222);
+
+  /* Inline icons: DevTools ships these as files. Same glyphs, as data URIs, so no extra
+     requests and nothing to 404. */
+  --image-file-chevron-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 13 5 8h10z' fill='%235f6368'/%3E%3C/svg%3E");
+  --image-file-arrow-drop-down-light: var(--image-file-chevron-down);
+  --image-file-arrow-drop-down-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 13 5 8h10z' fill='%239aa0a6'/%3E%3C/svg%3E");
+  --image-file-checkmark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M8 14 3.5 9.5 5 8l3 3 7-7L16.5 5.5z' fill='%231ea446'/%3E%3C/svg%3E");
+  --image-file-sync: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 4V1L6 5l4 4V6a4 4 0 1 1-4 4H4a6 6 0 1 0 6-6z' fill='%235f6368'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sys-color-on-surface-variant: var(--ref-palette-neutral-variant80);
+    --sys-color-outline-variant: var(--ref-palette-neutral-variant30);
+    --sys-color-primary-container: var(--ref-palette-primary30);
+    --sys-color-on-primary-container: var(--ref-palette-primary90);
+    --sys-color-secondary-container: var(--ref-palette-secondary30);
+    --sys-color-accent-green: var(--ref-palette-green70);
+    --sys-color-primary-rgb: 168 199 250;
+    --sys-color-accent-green-rgb: 125 223 154;
+
+    --color-primary-1: var(--ref-palette-primary70);
+    --color-primary-container: var(--ref-palette-primary30);
+    --color-primary-rgb: 168 199 250;
+    --color-accent-1: var(--ref-palette-primary80);
+    --color-accent-2: var(--ref-palette-secondary80);
+    --color-text-inverted: var(--ref-palette-neutral10);
+    --color-background-elevation-0: var(--ref-palette-neutral10);
+    --color-background-opacity-90: rgb(31 31 31 / 90%);
+    --color-details-hairline: var(--ref-palette-neutral30);
+    --color-scrollbar: var(--ref-palette-neutral40);
+    --color-shadow: rgb(0 0 0 / 36%);
+    --color-shadow-subtle: rgb(0 0 0 / 20%);
+  }
+}
