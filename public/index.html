@@ -5,217 +5,279 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Browser</title>
 <style>
-  :root { --bg:#0a0a0a; --panel:#121212; --line:#262626; --fg:#e6e6e6; --dim:#8a8a8a; }
-  * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
-    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  body { display:flex; flex-direction:column; }
-  header { display:flex; gap:8px; align-items:center; padding:8px 10px;
-    background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  .brand { font-weight:600; letter-spacing:.02em; margin-right:4px; white-space:nowrap; }
-  .brand small { color:var(--dim); font-weight:400; margin-left:6px; }
-  input, select, button { background:#0f0f0f; color:var(--fg); border:1px solid var(--line);
-    border-radius:6px; padding:6px 9px; font:inherit; outline:none; }
-  input:focus, select:focus { border-color:#3d3d3d; }
-  #url { flex:1 1 340px; min-width:200px; }
-  button { cursor:pointer; }
-  button:hover { border-color:#3d3d3d; }
-  .stat { color:var(--dim); font-size:12px; white-space:nowrap; }
-  main { flex:1; display:flex; align-items:flex-start; justify-content:center;
-    overflow:auto; padding:12px; }
-  #screen { max-width:100%; border:1px solid var(--line); border-radius:8px;
-    background:#000; cursor:crosshair; display:block; }
-  footer { padding:6px 10px; border-top:1px solid var(--line); background:var(--panel);
-    color:var(--dim); font-size:12px; display:flex; gap:14px; flex-wrap:wrap; }
-  kbd { border:1px solid var(--line); border-radius:4px; padding:0 4px; background:#0f0f0f; }
-  /* open tabs — the user's real workspace, not a passive reader */
-  #tabs { display:flex; gap:6px; padding:6px 10px; background:var(--panel);
-    border-bottom:1px solid var(--line); overflow-x:auto; }
-  #tabs:empty { display:none; }
-  .tab { border:1px solid var(--line); background:#0f0f0f; color:var(--dim); border-radius:6px;
-    padding:4px 9px; font-size:12px; cursor:pointer; white-space:nowrap; max-width:230px;
-    overflow:hidden; text-overflow:ellipsis; }
-  .tab:hover { border-color:#3d3d3d; }
-  .tab.on { color:var(--fg); border-color:#4a4a4a; background:#161616; }
-  .tab .app { color:#6f6f6f; }
-  /* the agent strip */
-  #assist { display:flex; gap:8px; align-items:center; padding:7px 10px;
-    background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  #goal { flex:1 1 380px; min-width:200px; }
-  .pill { border:1px solid var(--line); border-radius:999px; padding:3px 10px;
-    font-size:12px; color:var(--dim); white-space:nowrap; }
-  .pill.known { color:var(--fg); border-color:#4a4a4a; }
-  #trace { max-height:150px; overflow:auto; padding:0 10px; background:var(--bg);
-    color:var(--dim); font-size:12px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
-  #trace:empty { display:none; }
-  #trace div { padding:3px 0; border-bottom:1px solid #161616; }
+  /* Rebuilt from the real ego (lite) UI — the official screenshots at
+     cdn.ego.app/assets/docs (quick-start-page.png, space-page-v2.png), not from memory.
+     Two views, exactly as the product has them:
+       SPACE PAGE  white sheet, "N space(s)" centred, agent counter pill top-right,
+                   grid of live space previews with name + agent underneath, "+" to add
+       BROWSER     dark Chromium chrome: traffic lights, pill tab, round address bar,
+                   grid button top-right back to the spaces, agent control bar at the foot */
+  :root {
+    --sheet:#ffffff; --ink:#1f1f1f; --muted:#7c7c7c; --hair:#e6e6e6; --tile:#f6f6f6;
+    --chrome:#202124; --chrome-2:#303134; --chrome-ink:#e8eaed; --chrome-dim:#9aa0a6;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#000; overflow:hidden;
+    font:14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  #app { height:100%; display:flex; flex-direction:column; background:var(--sheet); }
+
+  /* traffic lights — same order and colours as macOS */
+  .lights { display:flex; gap:8px; align-items:center; }
+  .light { width:12px; height:12px; border-radius:50%; }
+  .l-red{background:#ff5f57} .l-yel{background:#febc2e} .l-grn{background:#28c840}
+
+  /* ───────────────────────── SPACE PAGE ───────────────────────── */
+  #spaces { flex:1; display:flex; flex-direction:column; background:var(--sheet); overflow:auto; }
+  .sp-bar { display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
+    padding:16px 20px 6px; }
+  .sp-title { text-align:center; font-size:15px; color:#3c3c3c; }
+  .sp-right { justify-self:end; }
+  .agent-pill { display:inline-flex; align-items:center; gap:7px; background:#fff;
+    border-radius:999px; padding:6px 12px 6px 9px; font-size:13px; color:#1f1f1f;
+    box-shadow:0 1px 3px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.04); }
+  .spark { width:15px; height:15px; }
+  .spark.spin { animation:spin 1.4s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(330px,1fr));
+    gap:26px 30px; padding:18px 26px 40px; }
+  .card { cursor:pointer; }
+  .shot { position:relative; aspect-ratio:16/11; border-radius:14px; overflow:hidden;
+    background:#fafafa; border:1px solid var(--hair); }
+  .card.live .shot { box-shadow:0 0 0 5px #dfe3e8; border-color:#cfd4da; }
+  .shot img { width:100%; height:100%; object-fit:cover; object-position:top center; display:block; }
+  .shot .empty { width:100%; height:100%; display:grid; place-items:center; color:#c2c2c2; font-size:13px; }
+  .meta { display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+    padding:12px 4px 0; }
+  .meta .name { font-size:15px; color:var(--ink); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; }
+  .meta .who { font-size:14px; color:var(--muted); white-space:nowrap; }
+  .add .shot { background:var(--tile); border:1px solid #ededed; display:grid; place-items:center; }
+  .add .plus { font-size:44px; color:#c6c6c6; font-weight:300; line-height:1; }
+
+  /* ───────────────────────── BROWSER ───────────────────────── */
+  #browser { flex:1; display:none; flex-direction:column; background:var(--chrome); }
+  .tabstrip { display:flex; align-items:center; gap:10px; padding:8px 12px 0; }
+  .tabs { display:flex; gap:6px; align-items:center; flex:1; overflow:hidden; }
+  .tab { display:flex; align-items:center; gap:8px; max-width:260px; padding:7px 13px;
+    border-radius:11px 11px 0 0; background:transparent; color:var(--chrome-dim);
+    font-size:13px; cursor:pointer; white-space:nowrap; overflow:hidden; }
+  .tab.on { background:var(--chrome-2); color:var(--chrome-ink); }
+  .tab .fav { width:14px; height:14px; border-radius:3px; background:#000; flex:none; }
+  .newtab { color:var(--chrome-dim); font-size:19px; cursor:pointer; padding:0 8px; }
+  .gridbtn { width:34px; height:34px; border-radius:50%; background:var(--chrome-2);
+    display:grid; place-items:center; cursor:pointer; flex:none; }
+  .gridbtn svg { width:17px; height:17px; }
+
+  .toolbar { display:flex; align-items:center; gap:6px; padding:6px 12px 9px; }
+  .nav { width:30px; height:30px; border-radius:50%; display:grid; place-items:center;
+    color:var(--chrome-ink); cursor:pointer; font-size:15px; }
+  .nav.off { color:#5f6368; }
+  .omni { flex:1; display:flex; align-items:center; gap:9px; background:var(--chrome-2);
+    border-radius:999px; padding:7px 14px; min-width:0; }
+  .omni input { flex:1; background:transparent; border:none; outline:none;
+    color:var(--chrome-ink); font-size:13.5px; min-width:0; }
+  .omni .lockish { width:15px; height:15px; color:var(--chrome-dim); flex:none; }
+
+  #screen { flex:1; width:100%; display:block; background:#fff; cursor:crosshair; }
+
+  /* agent control bar — the dark pill the agent shows while it drives */
+  #agentbar { position:absolute; left:50%; transform:translateX(-50%); bottom:18px;
+    display:none; align-items:center; gap:12px; background:rgba(32,33,36,.96);
+    color:#e8eaed; border-radius:12px; padding:9px 10px 9px 13px; font-size:13px;
+    box-shadow:0 6px 22px rgba(0,0,0,.35); max-width:min(640px,92vw); }
+  #agentbar .task { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #agentbar .sub { color:#9aa0a6; font-size:12px; }
+  .btn { border:none; border-radius:8px; padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .takeover { background:#3c4043; color:#e8eaed; }
+  .stop { background:#a52714; color:#fff; }
+  .wrap { position:relative; flex:1; display:flex; min-height:0; }
 </style>
 </head>
 <body>
-<header>
-  <button id="back" title="Back">←</button>
-  <input id="url" placeholder="Search or enter address" />
-  <button id="go">Go</button>
-  <label class="stat" id="spaceWrap">profile
-    <input id="space" value="default" size="9" style="margin-left:6px" />
-  </label>
-  <span class="stat" id="stat">connecting…</span>
-</header>
+<div id="app">
 
-<div id="tabs"></div>
+  <!-- SPACE PAGE -->
+  <section id="spaces">
+    <div class="sp-bar">
+      <div class="lights"><i class="light l-red"></i><i class="light l-yel"></i><i class="light l-grn"></i></div>
+      <div class="sp-title" id="spTitle">0 space(s)</div>
+      <div class="sp-right">
+        <span class="agent-pill"><svg class="spark" id="spark" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><b id="agentCount">0</b></span>
+      </div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
 
-<div id="assist">
-  <span id="app" class="pill">reading page…</span>
-  <input id="goal" placeholder="Tell the agent what to do here — e.g. add these 5 contacts, find duplicates, log this call" />
-  <button id="run">Run</button>
-  <span class="stat" id="agentStat"></span>
+  <!-- BROWSER -->
+  <section id="browser">
+    <div class="tabstrip">
+      <div class="lights"><i class="light l-red"></i><i class="light l-yel"></i><i class="light l-grn"></i></div>
+      <div class="tabs" id="tabs"></div>
+      <span class="newtab" id="newtab">+</span>
+      <div class="gridbtn" id="toSpaces" title="Spaces">
+        <svg viewBox="0 0 24 24" fill="currentColor" color="#e8eaed">
+          <rect x="3" y="3" width="7.5" height="7.5" rx="1.8"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.8"/>
+          <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.8"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.8"/>
+        </svg>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="nav" id="back">←</div><div class="nav off">→</div><div class="nav" id="reload">⟳</div>
+      <div class="omni">
+        <svg class="lockish" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="M4 8h10M4 12h7M4 16h10"/><circle cx="18.5" cy="12" r="2.4"/></svg>
+        <input id="url" placeholder="Search or enter address" spellcheck="false" />
+      </div>
+    </div>
+    <div class="wrap">
+      <canvas id="screen" width="1280" height="800"></canvas>
+      <div id="agentbar">
+        <svg class="spark spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+        <div><div class="task" id="agentTask">Working</div><div class="sub" id="agentSub">Agent is in control</div></div>
+        <button class="btn takeover" id="takeover">Take over</button>
+        <button class="btn stop" id="stopBtn">Stop</button>
+      </div>
+    </div>
+  </section>
 </div>
-<div id="trace"></div>
-
-<main><canvas id="screen" width="1280" height="800"></canvas></main>
-
-<footer>
-  <span>Click and type on the page — you are driving the real browser. Sign in once and it is remembered.</span>
-  <span id="title"></span>
-</footer>
 
 <script>
-const qs   = new URLSearchParams(location.search);
-const key  = qs.get('key') || '';
-// Embedded-tool mode: no branding, no profile picker, no chrome the host didn't ask for.
-// The task space follows the host user (fr_user), so each account keeps its own sessions.
-const embed  = qs.has('embed');
+const qs = new URLSearchParams(location.search);
+const key = qs.get('key') || '';
+const embed = qs.has('embed');
 const frUser = qs.get('fr_user') || '';
-const cv   = document.getElementById('screen');
-const ctx  = cv.getContext('2d');
-const stat = document.getElementById('stat');
-const ttl  = document.getElementById('title');
-const urlIn= document.getElementById('url');
-const spaceIn = document.getElementById('space');
-let ws, lastUrl = '', imgW = 1280, imgH = 800;
+const api = (p, b) => fetch(p + (key ? '?key=' + encodeURIComponent(key) : ''), {
+  method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify(b || {}) }).then(r => r.json());
 
-if (frUser) spaceIn.value = 'u_' + frUser;      // per-user profile, chosen by the host
-if (embed) {                                     // strip everything that isn't the browser itself
-  document.getElementById('spaceWrap').style.display = 'none';
-  document.querySelector('footer').style.display = 'none';
-  document.querySelector('main').style.padding = '0';
-  document.getElementById('screen').style.borderRadius = '0';
-  document.getElementById('screen').style.border = 'none';
+let space = frUser ? 'u_' + frUser : 'default';
+let ws = null, lastUrl = '', running = false;
+const $ = (id) => document.getElementById(id);
+
+/* ── space page ────────────────────────────────────────────────────────────
+   Cards mirror the real product: a live preview of each space, its name on the
+   left and the agent working in it on the right, a ring around the one an agent
+   currently drives, and a "+" tile to open another. */
+async function paintSpaces() {
+  let names = [];
+  try { names = (await api('/v1/spaces', {})).spaces || []; } catch {}
+  if (!names.length) names = [space];
+  $('spTitle').textContent = `${names.length} space(s)`;
+  $('agentCount').textContent = running ? '1' : '0';
+  $('spark').classList.toggle('spin', running);
+
+  const g = $('grid'); g.innerHTML = '';
+  for (const n of names) {
+    const card = document.createElement('div');
+    card.className = 'card' + (n === space && running ? ' live' : '');
+    card.innerHTML = `<div class="shot"><div class="empty">no preview yet</div></div>
+      <div class="meta"><span class="name">${n === 'default' ? 'Space' : n}</span>
+      <span class="who">${n === space && running ? 'agent' : ''}</span></div>`;
+    card.onclick = () => openSpace(n);
+    g.appendChild(card);
+    api('/v1/screenshot', { space:n }).then((r) => {
+      if (r && r.png_base64) card.querySelector('.shot').innerHTML =
+        `<img src="data:image/png;base64,${r.png_base64}" alt="">`;
+    }).catch(() => {});
+  }
+  const add = document.createElement('div');
+  add.className = 'card add';
+  add.innerHTML = `<div class="shot"><span class="plus">+</span></div>
+    <div class="meta"><span class="name">New space</span><span class="who"></span></div>`;
+  add.onclick = () => { const n = prompt('Name this space'); if (n) openSpace(n.trim()); };
+  g.appendChild(add);
 }
 
+function show(view) {
+  $('spaces').style.display = view === 'spaces' ? 'flex' : 'none';
+  $('browser').style.display = view === 'browser' ? 'flex' : 'none';
+}
+function openSpace(n) { space = n; show('browser'); connect(); paintTabs(); }
+$('toSpaces').onclick = () => { show('spaces'); paintSpaces(); };
+
+/* ── browser ─────────────────────────────────────────────────────────────── */
+const cv = $('screen'), ctx = cv.getContext('2d');
 function connect() {
-  const space = spaceIn.value || 'default';
+  try { ws && ws.close(); } catch {}
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?space=${encodeURIComponent(space)}`
     + (key ? '&key=' + encodeURIComponent(key) : '') + (embed ? '&embed=1' : ''));
-  ws.onopen  = () => (stat.textContent = 'live');
-  ws.onclose = () => { stat.textContent = 'disconnected — retrying'; setTimeout(connect, 1500); };
-  ws.onerror = () => (stat.textContent = 'error');
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.t !== 'frame') return;
     const img = new Image();
     img.onload = () => {
-      if (img.width !== imgW || img.height !== imgH) { imgW = img.width; imgH = img.height; cv.width = imgW; cv.height = imgH; }
+      if (img.width !== cv.width || img.height !== cv.height) { cv.width = img.width; cv.height = img.height; }
       ctx.drawImage(img, 0, 0);
     };
     img.src = 'data:image/jpeg;base64,' + m.b64;
-    if (m.url && m.url !== lastUrl) { lastUrl = m.url; if (document.activeElement !== urlIn) urlIn.value = m.url; }
-    ttl.textContent = m.title || '';
+    if (m.url && m.url !== lastUrl) {
+      lastUrl = m.url;
+      if (document.activeElement !== $('url')) $('url').value = m.url;
+      paintTabs();
+    }
   };
+  ws.onclose = () => setTimeout(() => { if ($('browser').style.display !== 'none') connect(); }, 1500);
 }
-const send = (o) => ws?.readyState === 1 && ws.send(JSON.stringify(o));
+const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
 
-// map canvas coords -> real page coords (canvas is CSS-scaled)
-function pt(e) {
-  const r = cv.getBoundingClientRect();
-  return { x: Math.round((e.clientX - r.left) * (cv.width / r.width)),
-           y: Math.round((e.clientY - r.top) * (cv.height / r.height)) };
-}
-cv.addEventListener('click', (e) => { const p = pt(e); send({ t: 'click', ...p }); cv.focus(); });
-cv.addEventListener('wheel', (e) => { e.preventDefault(); send({ t: 'wheel', dy: e.deltaY }); }, { passive: false });
-document.addEventListener('keydown', (e) => {
-  if (e.target === urlIn || e.target === spaceIn) return;
-  const special = ['Enter','Tab','Backspace','Delete','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape','Home','End','PageUp','PageDown'];
-  if (special.includes(e.key)) { e.preventDefault(); send({ t: 'key', key: e.key }); }
-  else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); send({ t: 'text', text: e.key }); }
-});
-/* ── the agent layer ─────────────────────────────────────────────────────────────
- * The browser is not here to be watched. It recognises the app you are in
- * (HubSpot, Salesforce, Notion…), tells you what it can take off your hands, and
- * does it on the live page. Your other SaaS becomes something it operates for you.
- */
-const api = (path, body) => fetch(path + (key ? '?key=' + encodeURIComponent(key) : ''), {
-  method: 'POST', headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ space: spaceIn.value || 'default', ...body }),
-}).then((r) => r.json());
-
-const appPill = document.getElementById('app');
-const traceEl = document.getElementById('trace');
-const tabsEl  = document.getElementById('tabs');
-const agentStat = document.getElementById('agentStat');
-let lastAssistUrl = '';
-
-async function refreshTabs() {
-  try {
-    const { tabs = [] } = await api('/v1/tabs', {});
-    tabsEl.innerHTML = '';
-    tabs.forEach((t) => {
-      const b = document.createElement('button');
-      b.className = 'tab' + (t.active ? ' on' : '');
-      b.innerHTML = `${(t.title || t.url).slice(0, 34)} <span class="app">${t.app}</span>`;
-      b.title = t.url;
-      b.onclick = async () => { await api('/v1/tab', { index: t.index }); refreshTabs(); refreshAssist(true); };
-      tabsEl.appendChild(b);
-    });
-  } catch {}
-}
-
-async function refreshAssist(force) {
-  if (!force && lastUrl === lastAssistUrl) return;
-  lastAssistUrl = lastUrl;
-  try {
-    const a = await api('/v1/assist', {});
-    appPill.textContent = a.knows_app
-      ? `${a.app} — ${a.tasks.length} tasks it can do for you`
-      : `${a.app || 'page'} — general assistance`;
-    appPill.className = 'pill' + (a.knows_app ? ' known' : '');
-    appPill.title = (a.tasks || []).map((t) => '• ' + t.label).join('\n');
-    if (!a.llm) agentStat.textContent = 'agent offline (no model key)';
-  } catch {}
-}
-
-const goalIn = document.getElementById('goal');
-async function runAgent() {
-  const goal = goalIn.value.trim();
-  if (!goal) return;
-  agentStat.textContent = 'working…';
-  traceEl.innerHTML = '';
-  try {
-    const r = await api('/v1/agent', { goal });
-    (r.trace || []).forEach((s) => {
-      const d = document.createElement('div');
-      d.textContent = `${s.step}. ${s.action}${s.ref ? ' ' + s.ref : ''} — ${s.thought || ''}`;
-      traceEl.appendChild(d);
-    });
+async function paintTabs() {
+  let tabs = [];
+  try { tabs = (await api('/v1/tabs', { space })).tabs || []; } catch {}
+  const el = $('tabs'); el.innerHTML = '';
+  tabs.forEach((t) => {
     const d = document.createElement('div');
-    d.textContent = (r.status === 'needs_input' || r.status === 'needs_confirmation' ? '⤷ ' : '✓ ') + (r.result || r.error || '');
-    d.style.color = '#e6e6e6';
-    traceEl.appendChild(d);
-    agentStat.textContent = r.status || (r.ok ? 'done' : 'failed');
-  } catch (e) { agentStat.textContent = 'error'; }
-  refreshTabs();
+    d.className = 'tab' + (t.active ? ' on' : '');
+    d.innerHTML = `<span class="fav"></span>${(t.title || t.url || '').slice(0, 34)}`;
+    d.title = t.url;
+    d.onclick = async () => { await api('/v1/tab', { space, index: t.index }); paintTabs(); };
+    el.appendChild(d);
+  });
 }
-document.getElementById('run').onclick = runAgent;
-goalIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgent(); });
-setInterval(() => { refreshTabs(); refreshAssist(false); }, 4000);
-setTimeout(() => { refreshTabs(); refreshAssist(true); }, 1200);
+$('newtab').onclick = () => send({ t:'goto', url:'https://www.google.com' });
+$('back').onclick = () => send({ t:'back' });
+$('reload').onclick = () => send({ t:'goto', url:lastUrl });
+$('url').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  let v = $('url').value.trim();
+  if (v && !/^https?:\/\//i.test(v)) v = /\.\w{2,}/.test(v) ? 'https://' + v
+    : 'https://www.google.com/search?q=' + encodeURIComponent(v);
+  send({ t:'goto', url:v });
+});
 
-document.getElementById('go').onclick = () => send({ t: 'goto', url: urlIn.value });
-document.getElementById('back').onclick = () => send({ t: 'back' });
-urlIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') send({ t: 'goto', url: urlIn.value }); });
-spaceIn.addEventListener('change', () => { try { ws.close(); } catch {} });
-connect();
+const pt = (e) => { const r = cv.getBoundingClientRect();
+  return { x: Math.round((e.clientX - r.left) * (cv.width / r.width)),
+           y: Math.round((e.clientY - r.top) * (cv.height / r.height)) }; };
+cv.addEventListener('click', (e) => send({ t:'click', ...pt(e) }));
+cv.addEventListener('wheel', (e) => { e.preventDefault(); send({ t:'wheel', dy:e.deltaY }); }, { passive:false });
+document.addEventListener('keydown', (e) => {
+  if (e.target === $('url')) return;
+  const special = ['Enter','Tab','Backspace','Delete','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape'];
+  if (special.includes(e.key)) { e.preventDefault(); send({ t:'key', key:e.key }); }
+  else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); send({ t:'text', text:e.key }); }
+});
+
+/* ── agent control bar ────────────────────────────────────────────────────
+   Shown only while the agent drives, exactly like the product: what it is doing,
+   "Agent is in control", and the two ways for a human to take the wheel back. */
+window.runAgent = async (goal) => {
+  running = true; $('agentbar').style.display = 'flex';
+  $('agentTask').textContent = goal; $('agentSub').textContent = 'Agent is in control';
+  try {
+    const r = await api('/v1/agent', { space, goal });
+    $('agentTask').textContent = r.result || r.error || 'done';
+    $('agentSub').textContent = r.status || '';
+  } finally { running = false; }
+};
+$('takeover').onclick = () => { running = false; $('agentbar').style.display = 'none'; };
+$('stopBtn').onclick = () => { running = false; $('agentbar').style.display = 'none'; };
+
+show('spaces'); paintSpaces();
+setInterval(() => { if ($('spaces').style.display !== 'none') paintSpaces(); }, 8000);
 </script>
 </body>
 </html>
