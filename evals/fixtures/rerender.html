@@ -1,0 +1,34 @@
+<!doctype html>
+<meta charset="utf-8"><title>Rerender</title>
+<!-- What React does on every state change: throw the subtree away and build a new one.
+     Every element handle taken before that points at detached DOM afterwards. -->
+<div id="list"></div>
+<div id="out">nothing clicked</div>
+<div id="host"></div>
+<script>
+  const ROWS = ['Acme Corp', 'Globex', 'Initech'];
+  function render() {
+    const l = document.getElementById('list');
+    l.innerHTML = '';                                  // discards the previous nodes entirely
+    ROWS.forEach((name) => {
+      const b = document.createElement('button');
+      b.textContent = 'Open ' + name;
+      b.onclick = () => { document.getElementById('out').textContent = 'opened ' + name; };
+      l.appendChild(b);
+    });
+  }
+  render();
+  setTimeout(render, 300);                             // the re-render, after a snapshot is taken
+
+  // same test inside a shadow root, where XPath cannot reach
+  const sh = document.getElementById('host').attachShadow({ mode: 'open' });
+  function renderShadow() {
+    sh.innerHTML = '';
+    const b = document.createElement('button');
+    b.textContent = 'Shadow action';
+    b.onclick = () => { document.getElementById('out').textContent = 'shadow fired'; };
+    sh.appendChild(b);
+  }
+  renderShadow();
+  setTimeout(renderShadow, 300);
+</script>

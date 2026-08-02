@@ -5,9 +5,14 @@
   "type": "module",
   "main": "server.mjs",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "eval": "node evals/run.mjs",
+    "eval:dom": "node evals/rerender.mjs",
+    "test": "node evals/rerender.mjs && node evals/run.mjs"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "license": "MIT",
   "dependencies": {
     "playwright": "^1.49.0",

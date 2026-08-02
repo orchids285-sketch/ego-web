@@ -21,6 +21,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { runGoal } from '../agent.mjs';
+// The real perception layer, not a copy: a duplicated snapshot here silently graded a
+// weaker agent than the one that ships (no shadow DOM, no frames, no durable refs).
+import { snapshotPage, resolve } from '../dom.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, 'fixtures');
@@ -102,7 +105,7 @@ const run = async () => {
   const page = {
     goto: async (u) => { await p.goto(u, { waitUntil: 'domcontentloaded', timeout: 20000 }); return { url: p.url() }; },
     info: async () => ({ url: p.url(), title: await p.title() }),
-    snapshot: async () => p.evaluate(SNAP),
+    snapshot: async () => snapshotPage(p),
     click: async (ref) => { const el = await resolve(p, ref); await el.click({ timeout: 8000 }); return true; },
     fill: async (ref, t) => { const el = await resolve(p, ref); await el.fill(String(t)); return true; },
     type: async (ref, t) => { const el = await resolve(p, ref); await el.type(String(t)); return true; },
@@ -143,32 +146,5 @@ const run = async () => {
   console.log(`\n ${passed}/${results.length} passed — score ${(passed / results.length).toFixed(2)}`);
   process.exit(results.length - passed);
 };
-
-/* the snapshot + ref resolution the server uses, duplicated here so the harness exercises
-   the same grounding the agent gets in production */
-const SNAP = `(() => {
-  const out=[],refs=[];
-  const vis=el=>{const r=el.getBoundingClientRect();if(r.width<2||r.height<2)return false;
-    const s=getComputedStyle(el);return !(s.visibility==='hidden'||s.display==='none'||Number(s.opacity)<0.05);};
-  const label=el=>(el.getAttribute('aria-label')||el.getAttribute('placeholder')||el.getAttribute('title')||
-    (el.innerText||el.textContent||'').trim().replace(/\\s+/g,' ')).slice(0,120);
-  document.querySelectorAll('a[href],button,input,select,textarea,[role=button]').forEach(el=>{
-    if(!vis(el)||el.disabled)return;const i=refs.length+1;refs.push(el);
-    out.push('@e'+i+' <'+el.tagName.toLowerCase()+'> '+JSON.stringify(label(el)));});
-  window.__egoRefs=refs;
-  const shown=(document.body?.innerText||'').replace(/\\s+/g,' ').trim();
-  const raw=(document.body?.textContent||'').replace(/\\s+/g,' ').trim();
-  return {url:location.href,title:document.title,count:refs.length,elements:out.join('\\n'),
-          text:shown.slice(0,4000),hidden_text:raw.length>shown.length?raw.slice(0,4000):''};
-})()`;
-
-async function resolve(p, ref) {
-  const m = /^@e(\d+)$/.exec(String(ref).trim());
-  if (!m) return p.locator(String(ref));
-  const h = await p.evaluateHandle((i) => (window.__egoRefs || [])[i], Number(m[1]) - 1);
-  const el = h.asElement();
-  if (!el) throw new Error(`ref ${ref} not found`);
-  return el;
-}
 
 run();
