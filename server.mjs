@@ -112,7 +112,14 @@ const SNAPSHOT_JS = `(() => {
   });
   window.__egoRefs = refs;
   const heading = (document.querySelector('h1')?.innerText || '').trim().slice(0, 120);
-  return { url: location.href, title: document.title, heading, count: refs.length, elements: out.join('\\n') };
+  // Body text matters for two reasons: the agent usually needs it to answer, and it is the
+  // surface indirect prompt injection actually hides in. innerText omits display:none, so
+  // textContent is taken too - a payload the human cannot see is exactly the dangerous case.
+  const shown = (document.body?.innerText || '').replace(/\\s+/g, ' ').trim();
+  const raw = (document.body?.textContent || '').replace(/\\s+/g, ' ').trim();
+  const hiddenExtra = raw.length > shown.length ? raw.slice(0, 4000) : '';
+  return { url: location.href, title: document.title, heading, count: refs.length,
+           elements: out.join('\\n'), text: shown.slice(0, 4000), hidden_text: hiddenExtra };
 })()`;
 
 async function snapshot(space) {
