@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { chromium } from 'playwright';
 import { snapshotPage, resolve } from './dom.mjs';
+import { verifyTicket } from './ticket.mjs';
 import { runGoal, runTask, assist, llmReady } from './agent.mjs';
 import { detect } from './playbooks.mjs';
 import { handle as mcpHandle } from './mcp.mjs';
@@ -188,6 +189,13 @@ const authed = (req, url) => {
   if (EMBED_OPEN && url.searchParams.has('embed')) return true;  // fronted by the wl-* proxy
   const h = req.headers.authorization || '';
   if (h === `Bearer ${API_KEY}`) return true;
+  // A ticket the SaaS minted for THIS user. Preferred over ?key= for the embedded panel:
+  // the panel is an iframe, so whatever authorises it is readable by the person looking at
+  // the page, and ?key= would hand every user the same shared credential. A ticket is
+  // per-user and expires in minutes.
+  const fr = url.searchParams.get('fr_user');
+  const t = url.searchParams.get('t');
+  if (fr && t && verifyTicket(fr, t)) return true;
   return url.searchParams.get('key') === API_KEY;
 };
 

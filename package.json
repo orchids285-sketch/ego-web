@@ -8,7 +8,8 @@
     "start": "node server.mjs",
     "eval": "node evals/run.mjs",
     "eval:dom": "node evals/rerender.mjs",
-    "test": "node evals/rerender.mjs && node evals/run.mjs"
+    "test": "node evals/ticket.mjs && node evals/rerender.mjs && node evals/run.mjs",
+    "eval:ticket": "node evals/ticket.mjs"
   },
   "engines": {
     "node": ">=20"
