@@ -141,6 +141,19 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
    * like someone who works here, not a stranger clicking around. */
   const companyContext = await bridge.context(goal).catch(() => '');
 
+  /* Which acts does the job itself refuse to do without a human? A skill declares these
+   * in the company's own vocabulary, so they catch stops a generic verb list cannot:
+   * "approve", "assign", "escalate". Matched against the element's visible label, since
+   * that is what the person clicking would have read. Absent skill → empty → the built-in
+   * list still applies on its own. */
+  const job = await bridge.skill(goal).catch(() => null);
+  const skillStops = (job && Array.isArray(job.needs_approval_for) ? job.needs_approval_for : [])
+    .map((v) => String(v).trim().toLowerCase()).filter(Boolean);
+  const needsApproval = (label) => {
+    const l = String(label).toLowerCase();
+    return skillStops.some((v) => new RegExp(`\\b${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(l));
+  };
+
   const M = metrics || newMetrics();
   const startedAt = Date.now();
   const trail = [];
@@ -271,7 +284,11 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
     // means a recorded human approval — lets an irreversible action through.
     if (!auth.allowIrreversible && ref) {
       const label = (snap.elements.split('\n').find((l) => l.startsWith(ref + ' ')) || '');
-      if (action === 'click' && IRREVERSIBLE.test(label)) {
+      // The company's own list widens ours, never narrows it: a skill declares the acts it
+      // will not perform without a human, and those are specific to how they work
+      // ("approve", "assign", "escalate") in ways a generic verb list cannot anticipate.
+      // Union, so a skill can add a stop but never remove one.
+      if (action === 'click' && (IRREVERSIBLE.test(label) || needsApproval(label))) {
         return { ok: true, status: 'needs_confirmation', app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
                  result: `About to ${label.trim()} — that is irreversible. Confirm and I will finish.` };
       }

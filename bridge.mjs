@@ -90,11 +90,31 @@ export async function emit(kind, payload = {}) {
   return call('/api/spine/emit', { body: { source: 'ego-web', kind, user_id: USER || undefined, ...payload } });
 }
 
-/** One compact context block for the model: what we know + what we could do via API. */
+/**
+ * Which JOB is this goal part of, as the platform defines it?
+ *
+ * The Skills Engine answers deterministically: the role, the objective, the tools that
+ * job is allowed to use, and — the part that matters most here — which acts it refuses to
+ * perform without a human. Without it the browser agent works with generic capabilities
+ * and only its own hardcoded list of irreversible verbs, which is narrower than what the
+ * company has actually declared.
+ */
+export async function skill(goal) {
+  if (!BASE) return null;
+  const r = await call('/api/skills/route', { body: { intent: goal } }).catch(() => null);
+  return r && r.ok && r.skill ? r : null;
+}
+
+/** One compact context block for the model: the job, what we know, what we could do via API. */
 export async function context(goal) {
   if (!BASE) return '';
-  const [know, cat] = await Promise.all([recall(goal), apiCatalog()]);
+  const [know, cat, job] = await Promise.all([recall(goal), apiCatalog(), skill(goal)]);
   const parts = [];
+  if (job) {
+    // The briefing already reads as instructions to an employee, so it goes in as written
+    // rather than paraphrased into something weaker.
+    parts.push(`THE JOB THIS BELONGS TO (${job.skill}):\n${job.briefing}`);
+  }
   if (know.length) parts.push('WHAT THIS COMPANY ALREADY KNOWS (follow it):\n' +
     know.map((k) => `- ${k.title}: ${k.text.slice(0, 300)}`).join('\n'));
   if (cat.length) parts.push('REAL INTEGRATIONS AVAILABLE (prefer these over clicking): ' + cat.join(', '));
