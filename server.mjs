@@ -28,6 +28,7 @@ import { WebSocketServer } from 'ws';
 import { chromium } from 'playwright';
 import { runGoal, runTask, assist, llmReady } from './agent.mjs';
 import { detect } from './playbooks.mjs';
+import { handle as mcpHandle } from './mcp.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -374,6 +375,11 @@ const server = http.createServer(async (req, res) => {
        * /v1/agent  a plain-language goal, executed step by step on the live page
        * /v1/task   one named task from the app's playbook (create_contact, log_call, …)
        */
+      if (p === '/v1/mcp') {
+        // MCP endpoint. Same bearer as the rest of /v1, so a host configures one credential.
+        const reply = await mcpHandle(b, { makeFacades, snapshot, runGoal, assist });
+        return reply ? json(res, 200, reply) : json(res, 202, {});   // notifications get no body
+      }
       if (p === '/v1/tabs') { const f = makeFacades(space, []); return json(res, 200, { ok: true, tabs: await f.browser.tabs() }); }
       if (p === '/v1/tab') { const f = makeFacades(space, []); return json(res, 200, { ok: true, ...(await f.browser.useTab(b.index ?? 0)) }); }
       if (p === '/v1/assist') { const f = makeFacades(space, []); return json(res, 200, { ok: true, llm: llmReady(), ...(await assist(f.page)) }); }

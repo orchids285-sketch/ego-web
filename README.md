@@ -121,6 +121,34 @@ OpenRouter model, so this adds no new paid dependency.
 
 
 
+
+## Speaks MCP, so any host can drive it
+
+MCP settled the agent-to-tool layer — donated to the Linux Foundation in December 2025 with
+OpenAI, AWS, Google and Microsoft aboard — which is why ego lite ships as a Codex and Claude
+Code plugin. Speaking it means Claude Code, Codex or your own MCP server can use this browser,
+with the logged-in sessions, and no bespoke integration.
+
+`POST /v1/mcp`, same bearer as the rest of `/v1`, so a host configures one credential.
+
+| tool | does |
+|---|---|
+| `browser_open` | open a URL in the user's logged-in session |
+| `browser_snapshot` | the `@eN` map, shadow DOM and frames included |
+| `browser_click` · `browser_fill` | act on one ref |
+| `browser_do` | a goal in plain language — observes, acts, verifies, reports what it cost |
+| `browser_context` | which app is on screen and what it knows how to do there |
+| `browser_tabs` | what is open |
+
+Plain JSON-RPC rather than an SDK: the surface needed is three methods, and a service whose job
+is running a browser does not need another dependency. `initialize`, `tools/list`, `tools/call`,
+plus `ping`; notifications get `202` and no body, as the protocol requires. A tool that throws
+comes back as `isError` with the reason — a failing tool is not a broken protocol.
+
+Verified over the wire: `browser_do` returned `status: done`, the right answer, and
+`cost: 4558 tokens over 1 call(s), 7462ms`; a bad ref returned `isError` with
+`ref @e999 not found — take a fresh snapshot()`; an unknown method returned `-32601`.
+
 ## What a run cost, and sub-agents
 
 Every run reports its own bill, because driving a UI costs 10-100x an API call for the same
