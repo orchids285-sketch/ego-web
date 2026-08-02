@@ -136,6 +136,16 @@ outcome and a step budget says nothing about spend:
 It pays for itself immediately: the first measured run showed **4,326 prompt tokens for a
 single step** — the snapshot is the expensive part, which is not obvious until it is counted.
 
+Which is why there is a **cost ceiling**, not just a step cap: `budget_tokens` (default
+`EGO_MAX_TOKENS_PER_RUN`, 120k). A step cap bounds how *long* a run goes, not what it
+*costs*, and those diverge on heavy pages. The ceiling is checked before each turn **and
+inside the retry loop** — three retries happen within one turn, so a run could otherwise
+sail well past its budget before the next turn ever looked. Sub-agents inherit it, so the
+budget covers the whole tree and delegating cannot escape it.
+
+Hitting it is a policy stop, not a failure: `ok:true`, `status:"budget_exhausted"`, and a
+result saying how far it got — `Stopped at 4743 tokens (budget 100). Got as far as: click @e12`.
+
 `delegate` hands one self-contained sub-task to a fresh agent over the same page. It gets a
 focused brief instead of a long history, shares the parent's metric counters so a run stays one
 number, inherits the taint (a hostile page does not become trustworthy by delegating), and

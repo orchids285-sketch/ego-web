@@ -384,6 +384,7 @@ const server = http.createServer(async (req, res) => {
                                     maxSteps: Number(b.max_steps) || undefined,
                                     allowIrreversible: !!b.allow_irreversible,
                                     acknowledgeRestricted: !!b.acknowledge_restricted,
+                                    budgetTokens: Number(b.budget_tokens) || undefined,
                                     onStep: (s) => steps.push(s) });
         return json(res, 200, { ...out, trace: steps });
       }

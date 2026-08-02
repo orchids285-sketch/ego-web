@@ -21,6 +21,11 @@ const LLM_URL = process.env.EGO_LLM_URL || 'https://openrouter.ai/api/v1/chat/co
 const LLM_KEY = process.env.EGO_LLM_KEY || process.env.OPENROUTER_API_KEY || '';
 const LLM_MODEL = process.env.EGO_LLM_MODEL || 'nvidia/nemotron-3-super-120b-a12b:free';
 const MAX_STEPS = Number(process.env.EGO_MAX_STEPS || 14);
+/* A step cap bounds how long a run goes, not what it costs — and those diverge badly, because
+ * one snapshot of a heavy page can be several thousand prompt tokens. A run left on a schedule
+ * with only a step cap can therefore burn far more than intended. This is the cost ceiling:
+ * checked before each turn, so a run stops with its work reported instead of being killed. */
+const MAX_TOKENS_PER_RUN = Number(process.env.EGO_MAX_TOKENS_PER_RUN || 120000);
 
 export function llmReady() { return Boolean(LLM_KEY); }
 
@@ -116,7 +121,8 @@ RULES
  */
 export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversible = false,
                                 noApi = false, acknowledgeRestricted = false, onStep,
-                                metrics = null, depth = 0 }) {
+                                metrics = null, depth = 0,
+                                budgetTokens = MAX_TOKENS_PER_RUN }) {
   if (!llmReady()) return { ok: false, error: 'no LLM key configured (EGO_LLM_KEY / OPENROUTER_API_KEY)' };
 
   /* API-first. Clicking is the fallback, never the ambition: if the platform can already
@@ -145,6 +151,16 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
   const delegated = [];   // answers handed back by sub-agents
 
   for (let step = 1; step <= maxSteps; step++) {
+    // Cost ceiling, checked before spending rather than after. A sub-agent shares the parent's
+    // counters, so the budget covers the whole tree and cannot be escaped by delegating.
+    if (M.totalTokens >= budgetTokens) {
+      bridge.audit('agent.budget_exhausted', { goal, tokens: M.totalTokens, budget: budgetTokens })
+        .catch(() => {});
+      return { ok: true, status: 'budget_exhausted', steps: trail, threats,
+               metrics: done(M, startedAt),
+               result: `Stopped at ${M.totalTokens} tokens (budget ${budgetTokens}). `
+                     + (trail.length ? `Got as far as: ${trail.slice(-1)[0]}` : 'No progress yet.') };
+    }
     const snap = await page.snapshot();
     const pb = detect(snap.url);
     try { const o = new URL(snap.url).origin; if (!visitedOrigins.includes(o)) visitedOrigins.push(o); } catch {}
@@ -209,6 +225,10 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
     let decision = null;
     let lastErr = '';
     for (let attempt = 1; attempt <= 3 && !decision?.action; attempt++) {
+      // The ceiling is checked here too, not only at the top of the loop: three retries all
+      // happen inside a single turn, so a run could otherwise sail well past its budget
+      // before the next turn ever looked.
+      if (M.totalTokens >= budgetTokens) break;
       try {
         const nudge = attempt === 1 ? '' :
           '\n\nYour previous reply could not be parsed. Reply with ONE JSON object and nothing else.';
@@ -220,8 +240,19 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
       }
     }
     if (!decision?.action) {
-      return { ok: false, app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
-               error: lastErr || 'model returned no usable action after 3 attempts' };
+      // Every exit carries a status and a result, so a caller never has to guess why a run
+      // ended — this path used to return neither, which read as a silent failure.
+      // Hitting the ceiling is a policy stop, not a failure — same as max_steps or
+      // needs_confirmation — so it reports ok:true and the caller branches on `status`.
+      // Only a genuinely unusable model reply is ok:false.
+      const overBudget = M.totalTokens >= budgetTokens;
+      return { ok: overBudget, app: pb.name, steps: trail, threats, metrics: done(M, startedAt),
+               status: overBudget ? 'budget_exhausted' : 'failed',
+               result: overBudget
+                 ? `Stopped at ${M.totalTokens} tokens (budget ${budgetTokens}).`
+                 : (trail.length ? `Stopped after: ${trail.slice(-1)[0]}` : 'Made no progress.'),
+               error: overBudget ? undefined
+                 : (lastErr || 'model returned no usable action after 3 attempts') };
     }
 
     const { action, ref, text, url, result, thought } = decision;
@@ -277,7 +308,7 @@ export async function runGoal({ page, goal, maxSteps = MAX_STEPS, allowIrreversi
           page, goal: String(text || '').slice(0, 600),
           maxSteps: Math.max(3, Math.floor(maxSteps / 2)),
           allowIrreversible: auth.allowIrreversible, noApi: true,
-          acknowledgeRestricted, metrics: M, depth: depth + 1,
+          acknowledgeRestricted, metrics: M, depth: depth + 1, budgetTokens,
           onStep: (s) => onStep?.({ ...s, parentStep: step, sub: true }),
         });
         if (sub.threats?.length) { tainted = true; threats.push(...sub.threats); }
