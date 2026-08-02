@@ -98,6 +98,14 @@ it the way hard-coded selectors always do. Shipping with **13 apps / 34 tasks**:
 Intercom, Slack, Airtable, Linear, Google Sheets, Stripe, LinkedIn — plus a generic fallback so it
 is never useless on an unknown one.
 
+**Perception** (`dom.mjs`): one definition of how the agent sees a page, imported by the server and
+by the evals — never copied, because a second copy is how a harness ends up grading a weaker agent
+than the one that ships. It walks **shadow roots** (Salesforce Lightning, HubSpot and anything on
+web components hide their real controls behind those boundaries — without this the page looks
+almost empty) and **child frames** (`@f0e3` addresses an element inside frame 0). Each ref also
+carries a **durable address**, so a ref still resolves after a re-render throws the original node
+away, instead of forcing a fresh full-page read on the most common event in a web app.
+
 **The loop** (`agent.mjs`): observe → decide → act → verify, max-steps bounded, with a trace of
 every step returned to the caller. It refuses irreversible actions (send / pay / refund / delete /
 merge / publish / invite) unless the goal explicitly authorises them, and it stops and *asks* at a
