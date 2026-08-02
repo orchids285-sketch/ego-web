@@ -101,15 +101,29 @@ const SNAPSHOT_JS = `(() => {
     (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ')
   ).slice(0, 120);
   const SEL = 'a[href],button,input,select,textarea,[role=button],[role=link],[role=textbox],[role=checkbox],[role=tab],[role=menuitem],[contenteditable=true],[onclick]';
-  document.querySelectorAll(SEL).forEach((el) => {
-    if (!vis(el)) return;
-    if (el.disabled) return;
-    const i = refs.length + 1; refs.push(el);
-    const tag = el.tagName.toLowerCase();
-    const type = el.getAttribute('type');
-    const extra = [type ? 'type=' + type : '', el.getAttribute('href') ? 'href=' + el.getAttribute('href').slice(0, 60) : ''].filter(Boolean).join(' ');
-    out.push('@e' + i + ' <' + tag + (extra ? ' ' + extra : '') + '> ' + JSON.stringify(label(el)));
-  });
+  // Walk shadow roots as well as the light DOM. querySelectorAll stops at every shadow
+  // boundary, and the products this agent is meant to operate — Salesforce Lightning,
+  // HubSpot, anything built on web components — put their real controls inside those
+  // boundaries. Without this the page looks almost empty and the agent is blind to it.
+  const collect = (root, depth) => {
+    if (depth > 12) return;                     // pathological nesting guard
+    let nodes;
+    try { nodes = root.querySelectorAll(SEL); } catch (e) { return; }
+    nodes.forEach((el) => {
+      if (!vis(el) || el.disabled) return;
+      const i = refs.length + 1; refs.push(el);
+      const tag = el.tagName.toLowerCase();
+      const type = el.getAttribute('type');
+      const extra = [type ? 'type=' + type : '',
+                     el.getAttribute('href') ? 'href=' + el.getAttribute('href').slice(0, 60) : '',
+                     depth ? 'in-shadow' : ''].filter(Boolean).join(' ');
+      out.push('@e' + i + ' <' + tag + (extra ? ' ' + extra : '') + '> ' + JSON.stringify(label(el)));
+    });
+    let hosts;
+    try { hosts = root.querySelectorAll('*'); } catch (e) { return; }
+    hosts.forEach((el) => { if (el.shadowRoot) collect(el.shadowRoot, depth + 1); });
+  };
+  collect(document, 0);
   window.__egoRefs = refs;
   const heading = (document.querySelector('h1')?.innerText || '').trim().slice(0, 120);
   // Body text matters for two reasons: the agent usually needs it to answer, and it is the
@@ -122,19 +136,64 @@ const SNAPSHOT_JS = `(() => {
            elements: out.join('\\n'), text: shown.slice(0, 4000), hidden_text: hiddenExtra };
 })()`;
 
+/**
+ * Snapshot the page AND its child frames.
+ *
+ * An iframe is a separate document, so a single evaluate() only ever sees the top one — and
+ * the apps this agent works in put whole features inside frames (HubSpot editors, embedded
+ * checkouts, help widgets). Each frame is snapshotted in its own context and its refs are
+ * addressed `@f<frame>e<n>`, so a ref stays unambiguous about where it lives.
+ */
+/** Child frames only, in a stable order. snapshot() numbers refs from this list and resolve()
+ *  reads from the same one — indexing the raw page.frames() there instead put @f0 on the main
+ *  frame, so every in-frame ref silently addressed the wrong document. */
+const childFrames = (page) => page.frames().filter((f) => f !== page.mainFrame());
+
 async function snapshot(space) {
   const page = await activePage(space);
-  const snap = await page.evaluate(SNAPSHOT_JS);
-  return snap;
+  const main = await page.evaluate(SNAPSHOT_JS);
+
+  const frames = childFrames(page);
+  const parts = [];
+  let frameCount = 0;
+  for (let i = 0; i < frames.length && frameCount < 8; i++) {
+    try {
+      const f = frames[i];
+      if (!f.url() || f.url() === 'about:blank') continue;
+      const sub = await f.evaluate(SNAPSHOT_JS);          // throws on cross-origin: skipped
+      if (!sub || !sub.count) continue;
+      frameCount++;
+      const renumbered = sub.elements.split('\n')
+        .map((l) => l.replace(/^@e(\d+)/, (_, n) => `@f${i}e${n}`))
+        .join('\n');
+      parts.push(`--- frame ${i} (${f.url().slice(0, 80)}) ---\n${renumbered}`);
+      main.count += sub.count;
+      if (sub.text) main.text = (main.text || '') + '\n' + sub.text;
+      if (sub.hidden_text) main.hidden_text = (main.hidden_text || '') + '\n' + sub.hidden_text;
+    } catch { /* cross-origin frame: not reachable, and that is expected */ }
+  }
+  if (parts.length) main.elements += '\n' + parts.join('\n');
+  main.frames = frameCount;
+  return main;
 }
 
 async function resolve(page, ref) {
-  const m = /^@e(\d+)$/.exec(String(ref).trim());
-  if (!m) return page.locator(String(ref)); // plain CSS/text selector still works
-  const idx = Number(m[1]) - 1;
-  const handle = await page.evaluateHandle((i) => (window.__egoRefs || [])[i], idx);
+  const r = String(ref).trim();
+  // `@f<frame>e<n>` addresses an element inside a child frame; `@e<n>` the top document.
+  const inFrame = /^@f(\d+)e(\d+)$/.exec(r);
+  if (inFrame) {
+    const f = childFrames(page)[Number(inFrame[1])];   // same list snapshot() numbered from
+    if (!f) throw new Error(`frame ${inFrame[1]} is gone — take a fresh snapshot()`);
+    const h = await f.evaluateHandle((i) => (window.__egoRefs || [])[i], Number(inFrame[2]) - 1);
+    const el = h.asElement();
+    if (!el) throw new Error(`ref ${r} not found — take a fresh snapshot()`);
+    return el;
+  }
+  const m = /^@e(\d+)$/.exec(r);
+  if (!m) return page.locator(r); // plain CSS/text selector still works
+  const handle = await page.evaluateHandle((i) => (window.__egoRefs || [])[i], Number(m[1]) - 1);
   const el = handle.asElement();
-  if (!el) throw new Error(`ref ${ref} not found — take a fresh snapshot()`);
+  if (!el) throw new Error(`ref ${r} not found — take a fresh snapshot()`);
   return el;
 }
 

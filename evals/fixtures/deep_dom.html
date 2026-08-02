@@ -1,0 +1,29 @@
+<!doctype html><html><head><title>Lightning-ish CRM</title></head><body style="font-family:sans-serif">
+<h1>Contacts</h1>
+<button>Plain button (light DOM)</button>
+
+<!-- a web component whose real controls live inside a shadow root, like Lightning -->
+<my-toolbar></my-toolbar>
+<script>
+class MyToolbar extends HTMLElement {
+  connectedCallback() {
+    const s = this.attachShadow({mode:'open'});
+    s.innerHTML = `<div>
+      <button id="newc">New contact</button>
+      <button id="merge">Merge selected</button>
+      <nested-panel></nested-panel>
+    </div>`;
+  }
+}
+customElements.define('my-toolbar', MyToolbar);
+class NestedPanel extends HTMLElement {
+  connectedCallback() {
+    const s = this.attachShadow({mode:'open'});
+    s.innerHTML = `<button id="deep">Export list</button>`;   // shadow inside shadow
+  }
+}
+customElements.define('nested-panel', NestedPanel);
+</script>
+
+<iframe src="/frame.html" style="width:420px;height:160px;border:1px solid #ccc"></iframe>
+</body></html>

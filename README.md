@@ -119,6 +119,29 @@ OpenRouter model, so this adds no new paid dependency.
 
 
 
+
+## It can see inside components and frames
+
+`querySelectorAll` stops at every shadow boundary and never crosses into an iframe — and the
+products this is built to operate put their real controls in exactly those places. Salesforce
+Lightning is web components; HubSpot embeds editors in frames.
+
+Snapshots therefore walk shadow roots recursively (nested ones included, marked `in-shadow`)
+and snapshot each reachable child frame in its own context. Elements in a frame are addressed
+`@fNe1`, which the agent is told about and which `click`/`fill` resolve against the same frame
+list the snapshot numbered from.
+
+Measured on `evals/fixtures/deep_dom.html` — one light-DOM button, two in a shadow root, one in
+a shadow root nested inside that, and two more inside an iframe:
+
+| | before | after |
+|---|---|---|
+| elements seen | **1 of 6** | **6 of 6** |
+
+Acting works across the boundary too, verified rather than assumed: filling `@f0e2` and then
+reading the value back out of the iframe's own DOM returns what was typed. Cross-origin frames
+are skipped, which is the browser's rule, not a limitation to fix.
+
 ## The page is hostile until proven otherwise (`guard.mjs`)
 
 A browser agent reads text written by whoever controls the page and then decides what to do.

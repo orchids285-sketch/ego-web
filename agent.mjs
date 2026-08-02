@@ -57,6 +57,9 @@ you look at the page, take ONE action, then look again.
 You receive a numbered map of the interactive elements (@e1, @e2, ...). Target elements ONLY by
 those refs. The map changes after every action — never reuse an old ref.
 
+Elements inside an embedded frame appear under a "--- frame N ---" heading and are numbered
+@fNe1, @fNe2. Use those refs exactly as written; they work like any other.
+
 Reply with STRICT JSON, one action:
 {"thought":"<one short line>","action":"click|fill|press|goto|scroll|extract|ask|done",
  "ref":"@eN","text":"...","url":"...","result":"..."}
