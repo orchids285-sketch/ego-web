@@ -89,6 +89,62 @@ export function navigationAllowed(targetUrl, { visitedOrigins = [], goal = '', t
            reason: `page content was suspicious; leaving to ${host} is not part of this task` };
 }
 
+/* ─────────────── automation posture: the legal surface, enforced in code ───────────────
+ *
+ * Driving someone else's product with automation is a contractual question before it is a
+ * technical one, and the answer differs per vendor. Some tolerate it, some restrict it to a
+ * human pace on the user's own account, and some prohibit it outright and litigate.
+ *
+ * Encoding that per app does three useful things: it stops the agent behaving in the ways
+ * that get accounts banned, it makes the risk visible instead of implicit, and it gives
+ * counsel something concrete to review. It does not replace legal advice.
+ *
+ *   permitted   the vendor's terms do not object to the account owner automating their own use
+ *   restricted  tolerated only at human pace, on the user's own account, no bulk extraction
+ *   prohibited  terms forbid automated access — requires an explicit, recorded acknowledgement
+ */
+export const POSTURE = {
+  linkedin:  { level: 'prohibited', minDelayMs: 4000, maxActions: 6,
+               note: 'LinkedIn forbids automated access and enforces it, commercially and in court.' },
+  gmail:     { level: 'restricted', minDelayMs: 1500, maxActions: 20,
+               note: 'Own mailbox only; never bulk-export correspondence.' },
+  slack:     { level: 'restricted', minDelayMs: 1500, maxActions: 20,
+               note: 'Messages are effectively irreversible; prefer the official API.' },
+  stripe:    { level: 'restricted', minDelayMs: 1200, maxActions: 20,
+               note: 'Money movement must go through approved flows, never the UI.' },
+  hubspot:   { level: 'permitted', minDelayMs: 800, maxActions: 40 },
+  salesforce:{ level: 'permitted', minDelayMs: 800, maxActions: 40 },
+  attio:     { level: 'permitted', minDelayMs: 800, maxActions: 40 },
+  pipedrive: { level: 'permitted', minDelayMs: 800, maxActions: 40 },
+  intercom:  { level: 'permitted', minDelayMs: 900, maxActions: 30 },
+  notion:    { level: 'permitted', minDelayMs: 800, maxActions: 40 },
+  airtable:  { level: 'permitted', minDelayMs: 800, maxActions: 40 },
+  linear:    { level: 'permitted', minDelayMs: 800, maxActions: 40 },
+  sheets:    { level: 'permitted', minDelayMs: 800, maxActions: 60 },
+  generic:   { level: 'restricted', minDelayMs: 1200, maxActions: 25,
+               note: 'Unknown vendor: behave conservatively until its terms are reviewed.' },
+};
+
+export function posture(appId) {
+  return POSTURE[appId] || POSTURE.generic;
+}
+
+/**
+ * Blast radius. Unbounded autonomy is what makes an incident unpriceable — and therefore
+ * uninsurable. A run that can touch at most N things in one app, at human pace, is a risk a
+ * business can actually carry.
+ */
+export function withinBudget({ appId, actionsTaken, originsTouched = 1 }) {
+  const p = posture(appId);
+  if (actionsTaken >= p.maxActions) {
+    return { ok: false, reason: `run cap reached for ${appId} (${p.maxActions} actions)` };
+  }
+  if (originsTouched > 3) {
+    return { ok: false, reason: 'run touched too many different sites to still be one task' };
+  }
+  return { ok: true, pace: p.minDelayMs };
+}
+
 /**
  * The authority a step may exercise, given what has been read so far.
  * Suspicion never *raises* authority and always removes the irreversible bit.

@@ -146,6 +146,28 @@ End to end against a live page carrying a hidden exfiltration instruction, with
 attacker ignored, and the agent still answered the user's actual question correctly.
 
 
+
+## Automation posture and blast radius
+
+Driving someone else's product is a contractual question before it is a technical one, and the
+answer differs per vendor. `guard.mjs` encodes that per app and the loop enforces it:
+
+| level | meaning | behaviour |
+|---|---|---|
+| `permitted` | terms do not object to the account owner automating their own use | normal pace |
+| `restricted` | tolerated at human pace, own account, no bulk extraction | slowed, tighter cap |
+| `prohibited` | terms forbid automated access **and are enforced** (LinkedIn) | **refuses**, unless the caller passes `acknowledge_restricted` |
+
+This does not replace legal advice — it stops the agent behaving in the ways that get a
+customer's account banned, makes the risk explicit instead of implicit, and gives counsel
+something concrete to review.
+
+**Blast radius** is bounded for the same reason insurers require it: unbounded autonomy makes
+an incident unpriceable. A run is capped per app (LinkedIn 6 actions, HubSpot 40), paced per
+vendor (4s vs 800ms between actions — acting faster than a human is what trips anti-automation
+defences), and refused once it has wandered across more than three sites, because at that point
+it is no longer one task.
+
 ## Behavioural evaluation (`evals/run.mjs`)
 
 Measuring value delivered to a customer needs live systems. Measuring *behaviour* does not —

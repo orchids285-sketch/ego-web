@@ -300,6 +300,7 @@ const server = http.createServer(async (req, res) => {
         const out = await runGoal({ page: f.page, goal: String(b.goal || ''),
                                     maxSteps: Number(b.max_steps) || undefined,
                                     allowIrreversible: !!b.allow_irreversible,
+                                    acknowledgeRestricted: !!b.acknowledge_restricted,
                                     onStep: (s) => steps.push(s) });
         return json(res, 200, { ...out, trace: steps });
       }
